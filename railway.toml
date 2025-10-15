@@ -1,0 +1,10 @@
+[deploy]
+start_command = "python bot.py"
+
+[build]
+builder = "nixpacks"
+
+[[services]]
+name = "web"
+[[services.ports]]
+port = 8000
