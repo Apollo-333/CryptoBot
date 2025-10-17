@@ -1,8 +1,11 @@
+setuptools==68.2.2
+wheel==0.41.2
+Cython==3.0.8
+numpy==1.24.3
+pandas==1.5.3
 ccxt==4.2.77
-pandas==2.0.3
 python-telegram-bot==20.7
 python-dotenv==1.0.0
-numpy==1.24.3
 ta==0.10.2
 flask==2.3.3
 gunicorn==21.2.0
