@@ -12,9 +12,9 @@ logging.basicConfig(
 )
 
 # Токен бота-помощника из переменных окружения
-SUPPORT_BOT_TOKEN = '8363521944:AAEzSvJu6NgO6t-kyMIpox6e5UfZFJvm9vI'
+SUPPORT_BOT_TOKEN = os.getenv("SUPPORT_BOT_TOKEN")
 # Ваш ID администратора из переменных окружения
-ADMIN_ID = 638584949
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 print(f"🔧 Запуск бота поддержки...")
 print(f"👨‍💻 ADMIN_ID: {ADMIN_ID}")
@@ -214,7 +214,7 @@ async def handle_payment_info(update: Update, context: ContextTypes.DEFAULT_TYPE
 USDT (TRC20): `TF33keB2N3P226zxFfESVCvXCFQMjnMXQh`
 
 💎 **Стоимость подписки:**
-1 месяц - 2,499 ₽
+1 месяц: 9 USDT
 
 📋 **Процесс оплаты:**
 1. Отправьте USDT на указанный адрес
