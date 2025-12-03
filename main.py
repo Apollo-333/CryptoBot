@@ -18,8 +18,8 @@ logging.basicConfig(
 )
 
 # Конфигурация
-BOT_TOKEN = "8345552041:AAHtBqC98i2iXuk7WsqVbqJCmRyy1luMo-M"
-ADMIN_IDS = [638584949]
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 # CoinGecko API конфигурация
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
@@ -1381,4 +1381,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
