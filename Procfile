@@ -1,1 +1,2 @@
-web: python bot.py
+web: python main.py
+worker: python support_bot.py
