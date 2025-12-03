@@ -2,7 +2,7 @@ setuptools>=68
 wheel>=0.41
 Cython==3.0.8
 numpy==1.26.4
-pandas==1.5.3
+pandas==2.2.3
 ccxt==4.2.77
 python-telegram-bot==20.7
 python-dotenv==1.0.0
