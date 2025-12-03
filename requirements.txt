@@ -1,7 +1,7 @@
-setuptools==68.2.2
-wheel==0.41.2
+setuptools>=68
+wheel>=0.41
 Cython==3.0.8
-numpy==1.24.3
+numpy==1.26.4
 pandas==1.5.3
 ccxt==4.2.77
 python-telegram-bot==20.7
@@ -10,3 +10,4 @@ ta==0.10.2
 flask==2.3.3
 gunicorn==21.2.0
 requests==2.31.0
+
