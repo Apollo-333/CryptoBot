@@ -3,6 +3,7 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Callb
 import logging
 import os
 from datetime import datetime
+import time
 
 # Настройка логирования
 logging.basicConfig(
@@ -199,16 +200,37 @@ def main():
     """Запуск бота поддержки"""
     print("🚀 Запуск бота поддержки...")
     
+    if not SUPPORT_BOT_TOKEN:
+        print("⚠️ SUPPORT_BOT_TOKEN не найден")
+        return
+    
     from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
     
     updater = Updater(SUPPORT_BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
     
-    # Все обработчики поддержки...
+    dp.add_handler(CommandHandler("start", start_command))
+    dp.add_handler(CommandHandler("reply", admin_reply_command))
+    dp.add_handler(CallbackQueryHandler(handle_payment_info, pattern="payment_info"))
+    dp.add_handler(CallbackQueryHandler(handle_faq, pattern="faq"))
+    dp.add_handler(CallbackQueryHandler(handle_faq, pattern="tech_issues"))
+    dp.add_handler(MessageHandler(Filters.photo, handle_photo))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
     
     print("✅ Бот поддержки запущен...")
+    print(f"👨‍💻 ADMIN_ID: {ADMIN_ID}")
+    print("👨‍💻 Для ответа: /reply <user_id> <сообщение>")
+    
+    # ЗАПУСКАЕМ БЕЗ idle()!
     updater.start_polling()
-    updater.idle()
+    
+    # Вместо idle() делаем бесконечный цикл
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Остановка бота поддержки...")
+        updater.stop()
 
 if __name__ == "__main__":
     main()
