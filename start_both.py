@@ -68,6 +68,8 @@ if __name__ == "__main__":
     print("📊 Основной бот: @CryptoSignalsPro777_bot")
     print("🆘 Бот поддержки: @CryptoSignalsSupportBot")
     print("=" * 60)
+    print("🌐 Keep-alive сервер запущен на порту 8080")
+    print("🔗 Проверить: https://cryptobot-sebz.onrender.com")
     
     # Держим основной поток живым
     try:
