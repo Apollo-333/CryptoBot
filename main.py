@@ -1,6 +1,6 @@
 import os
-import psycopg2
-from psycopg2 import pool
+import psycopg
+from psycopg import pool
 import logging
 from datetime import datetime, timedelta
 from telegram import Update
@@ -1381,5 +1381,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
