@@ -7,6 +7,7 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Callb
 import random
 import aiohttp
 import asyncio
+import time
 
 # ================== ЛОГИРОВАНИЕ ==================
 logging.basicConfig(
@@ -1226,3 +1227,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
