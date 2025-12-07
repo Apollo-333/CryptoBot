@@ -195,26 +195,6 @@ def handle_message(update, context):
     if update.message.text and not update.message.text.startswith('/'):
         forward_to_admin(update, context)
 
-def main():
-    print("🚀 Запуск бота поддержки...")
-    if not SUPPORT_BOT_TOKEN:
-        print("⚠️ SUPPORT_BOT_TOKEN не найден")
-        return
-
-    updater = Updater(SUPPORT_BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler("start", start_command))
-    dp.add_handler(CommandHandler("reply", admin_reply_command))
-    dp.add_handler(CallbackQueryHandler(handle_payment_info, pattern="payment_info"))
-    dp.add_handler(CallbackQueryHandler(handle_faq, pattern="faq"))
-    dp.add_handler(CallbackQueryHandler(handle_faq, pattern="tech_issues"))
-    dp.add_handler(MessageHandler(Filters.photo, handle_photo))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
-
-    print("✅ Бот поддержки запущен...")
-    updater.start_polling()
-    updater.idle()
-
+# Экспортируем переменные для start_both.py
 if __name__ == "__main__":
-    main()
+    print("⚠️ Запускайте через start_both.py!")
