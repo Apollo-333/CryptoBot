@@ -4,30 +4,27 @@ import logging
 from datetime import datetime, timedelta
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
-import requests
 import random
 import aiohttp
 import asyncio
 
-
-# Настройка логирования
+# ================== ЛОГИРОВАНИЕ ==================
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# Конфигурация
+# ================== КОНФИГ ==================
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
-# CoinGecko API конфигурация
+# CoinGecko API
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 
-# Расширенный список монет (100+)
+# ================== СПИСОК МОНЕТ ==================
 COINGECKO_IDS = {
-    # Топ 50 по капитализации
     'BTC': 'bitcoin',
-    'ETH': 'ethereum', 
+    'ETH': 'ethereum',
     'BNB': 'binancecoin',
     'SOL': 'solana',
     'XRP': 'ripple',
@@ -157,6 +154,20 @@ COINGECKO_IDS = {
     'BAKE': 'bakerytoken',
 }
 
+# ================== УТИЛИТЫ ДЛЯ АСИНХРОНА ==================
+def run_async(coro):
+    """Безопасный запуск корутины внутри синхронных хендлеров."""
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    if loop.is_closed():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+
+# ================== БАЗА ДАННЫХ ==================
 class UserDatabase:
     def __init__(self):
         self.conn = psycopg.connect(os.getenv("DATABASE_URL"))
@@ -193,22 +204,23 @@ class UserDatabase:
     def get_user(self, user_id):
         try:
             self.cursor.execute('''
-                SELECT user_id, is_premium, signals_today, last_reset_date
+                SELECT user_id, is_premium, signals_today, last_reset_date, premium_expiry
                 FROM users WHERE user_id = %s
             ''', (user_id,))
             result = self.cursor.fetchone()
             if result:
+                # result: (user_id, is_premium, signals_today, last_reset_date, premium_expiry)
                 return result
             else:
                 self.add_user(user_id)
-                return (user_id, False, 0, datetime.now().date().isoformat())
+                return (user_id, False, 0, datetime.now().date().isoformat(), None)
         except Exception as e:
             print(f"❌ Ошибка при получении пользователя: {e}")
-            return (user_id, False, 0, datetime.now().date().isoformat())
+            return (user_id, False, 0, datetime.now().date().isoformat(), None)
 
     def can_send_signal(self, user_id):
         try:
-            user_id, is_premium, signals_today, last_reset_date = self.get_user(user_id)
+            user_id, is_premium, signals_today, last_reset_date, _ = self.get_user(user_id)
             today = datetime.now().date().isoformat()
             if last_reset_date != today:
                 self.cursor.execute('''
@@ -246,7 +258,7 @@ class UserDatabase:
     def deactivate_premium(self, user_id):
         try:
             self.cursor.execute('''
-                UPDATE users SET is_premium = FALSE WHERE user_id = %s
+                UPDATE users SET is_premium = FALSE, premium_expiry = NULL WHERE user_id = %s
             ''', (user_id,))
             self.conn.commit()
             return True
@@ -254,15 +266,49 @@ class UserDatabase:
             print(f"❌ Ошибка деактивации премиума: {e}")
             return False
 
-# Создаем глобальный экземпляр базы данных
+    def check_premium_status(self, user_id):
+        """Возвращает True/False — активен ли премиум у пользователя."""
+        try:
+            self.cursor.execute('SELECT is_premium, premium_expiry FROM users WHERE user_id = %s', (user_id,))
+            row = self.cursor.fetchone()
+            if not row:
+                return False
+            is_premium, premium_expiry = row
+            if not is_premium:
+                return False
+            if premium_expiry:
+                try:
+                    return datetime.fromisoformat(premium_expiry) > datetime.now()
+                except Exception:
+                    return True
+            return True
+        except Exception as e:
+            print(f"❌ Ошибка проверки статуса премиума: {e}")
+            return False
+
+    def get_premium_users(self):
+        """Возвращает список (user_id, premium_expiry) активных премиум пользователей."""
+        try:
+            self.cursor.execute('SELECT user_id, premium_expiry FROM users WHERE is_premium = TRUE')
+            rows = self.cursor.fetchall() or []
+            result = []
+            for user_id, expiry in rows:
+                result.append((user_id, expiry))
+            return result
+        except Exception as e:
+            print(f"❌ Ошибка получения списка премиум: {e}")
+            return []
+
+# Глобальный экземпляр БД
 user_db = UserDatabase()
 
+# ================== ПРАВА АДМИНА ==================
 def is_admin(user_id):
-    """Проверка, является ли пользователь администратором"""
-    return user_id in ADMIN_IDS
+    return user_id == ADMIN_ID
 
+# ================== РАБОТА С API COINGECKO ==================
 async def get_crypto_price(symbol):
-    """Получить текущую цену криптовалюты с CoinGecko"""
+    """Получить текущую цену криптовалюты с CoinGecko."""
     try:
         coin_id = COINGECKO_IDS.get(symbol)
         if not coin_id:
@@ -294,13 +340,13 @@ async def get_crypto_price(symbol):
         return None
 
 async def get_multiple_prices(symbols):
-    """Получить цены для нескольких символов одновременно"""
+    """Получить цены для нескольких символов одновременно."""
     tasks = [get_crypto_price(symbol) for symbol in symbols]
     results = await asyncio.gather(*tasks)
     return dict(zip(symbols, results))
 
 async def get_top_coins(limit=100):
-    """Получить топ монет по капитализации"""
+    """Получить топ монет по капитализации."""
     try:
         async with aiohttp.ClientSession() as session:
             url = f"{COINGECKO_API_URL}/coins/markets"
@@ -311,45 +357,38 @@ async def get_top_coins(limit=100):
                 'page': 1,
                 'sparkline': 'false'
             }
-
             async with session.get(url, params=params) as response:
                 if response.status == 200:
                     coins = await response.json()
-                    # Создаем словарь символ -> coin_id
                     return {coin['symbol'].upper(): coin['id'] for coin in coins}
     except Exception as e:
         print(f"❌ Ошибка получения топ монет: {e}")
         return {}
 
+# ================== ЛОГИКА СИГНАЛОВ ==================
 def calculate_signal_parameters(current_price, change_24h, volume):
-    """Рассчитать параметры сигнала на основе рыночных данных"""
-    # Анализируем тренд на основе изменения цены за 24 часа
+    """Рассчитать параметры сигнала на основе рыночных данных."""
     if change_24h > 5:
-        # Сильный восходящий тренд
         action = "BUY" if random.random() > 0.3 else "HOLD"
         target_percent = random.uniform(3, 8)
         stop_loss_percent = random.uniform(2, 4)
         confidence = random.randint(75, 90)
     elif change_24h < -5:
-        # Сильный нисходящий тренд
         action = "SELL" if random.random() > 0.3 else "HOLD"
         target_percent = random.uniform(3, 8)
         stop_loss_percent = random.uniform(2, 4)
         confidence = random.randint(70, 85)
     else:
-        # Боковой тренд
         action = random.choice(["BUY", "SELL", "HOLD"])
         target_percent = random.uniform(2, 6)
         stop_loss_percent = random.uniform(1.5, 3)
         confidence = random.randint(65, 80)
 
-    # Корректируем на основе объема
-    if volume > 1000000000:  # Высокий объем
+    if volume > 1_000_000_000:
         confidence = min(95, confidence + 10)
-    elif volume < 100000000:  # Низкий объем
+    elif volume < 100_000_000:
         confidence = max(60, confidence - 5)
 
-    # Рассчитываем цены
     if action == "BUY":
         target_price = current_price * (1 + target_percent / 100)
         stop_loss_price = current_price * (1 - stop_loss_percent / 100)
@@ -360,7 +399,6 @@ def calculate_signal_parameters(current_price, change_24h, volume):
         target_price = current_price
         stop_loss_price = current_price
 
-    # Выбираем плечо на основе волатильности
     volatility = abs(change_24h)
     if volatility > 10:
         leverage = "2x"
@@ -378,16 +416,13 @@ def calculate_signal_parameters(current_price, change_24h, volume):
     }
 
 async def generate_real_signals():
-    """Генерация реальных торговых сигналов на основе текущих цен"""
+    """Генерация реальных торговых сигналов на основе текущих цен."""
     try:
-        # Выбираем случайные символы для анализа из топ 100
-        symbols = list(COINGECKO_IDS.keys())[:100]  # Берем только первые 100
+        symbols = list(COINGECKO_IDS.keys())[:100]
         selected_symbols = random.sample(symbols, min(5, len(symbols)))
         print(f"🔍 Анализируем символы: {selected_symbols}")
 
-        # Получаем текущие цены
         prices_data = await get_multiple_prices(selected_symbols)
-
         signals = []
 
         for symbol in selected_symbols:
@@ -399,11 +434,10 @@ async def generate_real_signals():
             change_24h = price_data.get('change_24h', 0)
             volume = price_data.get('volume', 0)
 
-            # Генерируем сигнал на основе рыночных данных
             signal_params = calculate_signal_parameters(current_price, change_24h, volume)
 
             if signal_params['action'] == 'HOLD':
-                continue  # Пропускаем сигналы HOLD
+                continue
 
             signal_text = f"""
 🎯 **СИГНАЛ** 🎯
@@ -422,7 +456,6 @@ async def generate_real_signals():
             """
             signals.append(signal_text)
 
-        # Если нет хороших сигналов, создаем хотя бы один
         if not signals:
             fallback_symbol = random.choice(list(COINGECKO_IDS.keys())[:50])
             price_data = await get_crypto_price(fallback_symbol)
@@ -451,16 +484,14 @@ async def generate_real_signals():
 
     except Exception as e:
         print(f"❌ Ошибка генерации реальных сигналов: {e}")
-        # Возвращаем fallback сигналы
         return await generate_fallback_signals()
 
 async def generate_fallback_signals():
-    """Генерация резервных сигналов если API не доступно"""
+    """Генерация резервных сигналов если API не доступно."""
     symbols = random.sample(list(COINGECKO_IDS.keys())[:50], 2)
     signals = []
 
     for symbol in symbols:
-        # Используем приблизительные цены как fallback
         approximate_prices = {
             'BTC': 35000, 'ETH': 1800, 'BNB': 250, 'SOL': 100,
             'XRP': 0.6, 'ADA': 0.4, 'DOGE': 0.08, 'DOT': 5,
@@ -491,15 +522,13 @@ async def generate_fallback_signals():
     return signals
 
 async def generate_free_signals():
-    """Генерация сигналов для бесплатных пользователей"""
+    """Генерация сигналов для бесплатных пользователей."""
     try:
-        # Бесплатные пользователи получают информацию о BTC
         btc_data = await get_crypto_price('BTC')
 
         if btc_data and btc_data.get('price'):
             btc_price = btc_data['price']
             btc_change = btc_data.get('change_24h', 0)
-
             trend = "📈 Восходящий" if btc_change > 0 else "📉 Нисходящий" if btc_change < 0 else "➡️ Боковой"
 
             return [f"""
@@ -516,9 +545,9 @@ async def generate_free_signals():
 🔒 **Для получения точных сигналов с точками входа/выхода оформите премиум-подписку!**
 
 💎 **Премиум включает:**
-✓ Неограниченное количество сигналов (100+ монет)
+✓ Неограниченные сигналы (100+ монет)
 ✓ Точные точки входа/выхода
-✓ Стоп-лосс и тейк-профит  
+✓ Стоп-лосс и тейк-профит
 ✓ Рекомендации по плечу
 ✓ Приоритетную поддержку
 ✓ Pump/Dump мониторинг 24/7
@@ -528,7 +557,6 @@ async def generate_free_signals():
     except Exception as e:
         print(f"❌ Ошибка генерации бесплатных сигналов: {e}")
 
-    # Fallback для бесплатных пользователей
     return ["""
 🎯 **БЕСПЛАТНЫЙ СИГНАЛ** 🎯
 
@@ -543,14 +571,14 @@ async def generate_free_signals():
 💎 **Премиум включает:**
 ✓ Неограниченное количество сигналов
 ✓ Точные точки входа/выхода
-✓ Стоп-лосс и тейк-профит  
+✓ Стоп-лосс и тейк-профит
 ✓ Рекомендации по плечу
 ✓ Приоритетную поддержку
 ✓ Pump/Dump мониторинг 24/7
     """]
 
 def get_market_analysis(btc_change):
-    """Анализ рынка на основе изменения BTC"""
+    """Анализ рынка на основе изменения BTC."""
     if btc_change > 5:
         return "Сильный бычий тренд. Рынок показывает уверенный рост. Рекомендуется следить за альткойнами."
     elif btc_change > 2:
@@ -565,15 +593,13 @@ def get_market_analysis(btc_change):
 class PumpDumpMonitor:
     def __init__(self):
         self.last_alerts = {}
-        self.alert_cooldown = timedelta(minutes=10)  # 10 минут кд между алертами
+        self.alert_cooldown = timedelta(minutes=10)
 
     async def check_pump_dump_signals(self):
-        """Проверка REAL pump/dump сигналов на основе реальных данных"""
+        """Проверка REAL pump/dump сигналов на основе реальных данных."""
         try:
-            # Берем топ 100 монет для анализа
             symbols = list(COINGECKO_IDS.keys())[:100]
             print(f"🔍 Анализируем {len(symbols)} монет для Pump/Dump...")
-
             prices_data = await get_multiple_prices(symbols)
 
             alerts = []
@@ -586,30 +612,23 @@ class PumpDumpMonitor:
                 current_price = data.get('price', 0)
                 volume = data.get('volume', 0)
 
-                # REAL критерии для pump сигналов
-                if change_24h > 12:  # Реальный pump: более 12% за 24 часа
+                if change_24h > 12:
                     alert_type = "🚀 PUMP"
                     intensity = "Высокая" if change_24h > 20 else "Средняя"
                     alert_msg = f"{symbol} вырос на {change_24h:.1f}% до ${current_price:,.2f}"
-
-                # REAL критерии для dump сигналов  
-                elif change_24h < -12:  # Реальный dump: более 12% падения
+                elif change_24h < -12:
                     alert_type = "🔻 DUMP"
                     intensity = "Высокая" if change_24h < -20 else "Средняя"
                     alert_msg = f"{symbol} упал на {abs(change_24h):.1f}% до ${current_price:,.2f}"
                 else:
                     continue
 
-                # Проверяем коoldown
                 alert_key = f"{symbol}_{alert_type}"
                 last_alert_time = self.last_alerts.get(alert_key)
-
                 if last_alert_time and datetime.now() - last_alert_time < self.alert_cooldown:
                     continue
-
                 self.last_alerts[alert_key] = datetime.now()
 
-                # Добавляем рекомендации на основе реальных данных
                 if alert_type == "🚀 PUMP":
                     if change_24h > 25:
                         recommendation = "⚠️ Сильный перекуп - возможна коррекция"
@@ -620,7 +639,7 @@ class PumpDumpMonitor:
                     else:
                         recommendation = "💹 Умеренный рост - можно рассматривать покупки"
                         action = "BUY"
-                else:  # DUMP
+                else:
                     if change_24h < -25:
                         recommendation = "💥 Сильное падение - возможен отскок"
                         action = "BUY/WAIT"
@@ -651,11 +670,10 @@ class PumpDumpMonitor:
             return []
 
     async def get_market_overview(self):
-        """Получить обзор рынка с потенциальными сигналами"""
+        """Получить обзор рынка с потенциальными сигналами."""
         try:
             symbols = list(COINGECKO_IDS.keys())[:50]
             prices_data = await get_multiple_prices(symbols)
-
             potential_signals = []
 
             for symbol, data in prices_data.items():
@@ -665,21 +683,14 @@ class PumpDumpMonitor:
                 change_24h = data['change_24h']
                 current_price = data.get('price', 0)
 
-                # Ищем активы с высокой волатильностью (5-12%)
                 if 5 <= abs(change_24h) < 12:
-                    status = "📊 ВЫСОКАЯ ВОЛАТИЛЬНОСТЬ"
-                    if change_24h > 0:
-                        trend = "📈 Восходящий"
-                        recommendation = "Может продолжить рост"
-                    else:
-                        trend = "📉 Нисходящий" 
-                        recommendation = "Может продолжить падение"
-
+                    trend = "📈 Восходящий" if change_24h > 0 else "📉 Нисходящий"
+                    recommendation = "Может продолжить рост" if change_24h > 0 else "Может продолжить падение"
                     potential_signals.append({
                         'symbol': symbol,
                         'change': change_24h,
                         'price': current_price,
-                        'status': status,
+                        'status': "📊 ВЫСОКАЯ ВОЛАТИЛЬНОСТЬ",
                         'trend': trend,
                         'recommendation': recommendation
                     })
@@ -690,23 +701,20 @@ class PumpDumpMonitor:
             print(f"❌ Ошибка получения обзора рынка: {e}")
             return []
 
-# Создаем глобальный экземпляр монитора
+# Глобальный экземпляр монитора
 pump_dump_monitor = PumpDumpMonitor()
 
 async def generate_comprehensive_signals(user_id):
-    """Генерация торговых сигналов"""
+    """Генерация торговых сигналов с учетом статуса пользователя."""
     try:
-        # Для администраторов - полный доступ всегда
         if is_admin(user_id):
             print(f"👑 Администратор {user_id} запросил сигналы")
             signals = await generate_real_signals()
             return signals, None
 
-        # Для обычных пользователей проверяем премиум
-        user_data = user_db.get_user(user_id)
-        is_premium = user_data[1]
+        user_id_, is_premium, _, _, _ = user_db.get_user(user_id)
 
-        if not is_premium:
+        if not is_premium or not user_db.check_premium_status(user_id):
             print(f"👤 Бесплатный пользователь {user_id} запросил сигналы")
             if not user_db.can_send_signal(user_id):
                 user_data = user_db.get_user(user_id)
@@ -723,12 +731,10 @@ async def generate_comprehensive_signals(user_id):
 • Анализ всех топовых монет
 
 Нажмите «💎 Подписка» для оформления!"""
-
             free_signals = await generate_free_signals()
             user_db.increment_signal_count(user_id)
             return free_signals, None
 
-        # Премиум пользователи получают полные сигналы
         print(f"💎 Премиум пользователь {user_id} запросил сигналы")
         signals = await generate_real_signals()
         user_db.increment_signal_count(user_id)
@@ -738,25 +744,20 @@ async def generate_comprehensive_signals(user_id):
         print(f"❌ Ошибка генерации сигналов: {e}")
         return None, "⚠️ Произошла ошибка при генерации сигналов"
 
+# ================== КЛАВИАТУРЫ ==================
 def get_main_keyboard(user_id):
-    """Получить основную клавиатуру"""
     keyboard = [
         [KeyboardButton("🎯 Сигналы"), KeyboardButton("📈 Pump/Dump")],
         [KeyboardButton("💎 Подписка"), KeyboardButton("🆘 Поддержка")]
     ]
-
-    # Добавляем кнопку админ-панели для администраторов
     if is_admin(user_id):
         keyboard.append([KeyboardButton("👨‍💻 Админ-панель")])
-
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
+# ================== ХЕНДЛЕРЫ (СИНХРОННЫЕ) ==================
+def start_command(update, context):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
-
-    # Добавляем пользователя в базу
     user_db.add_user(user_id)
 
     welcome_text = f"""
@@ -769,56 +770,39 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • 💎 Премиум подписка
 • 🆘 Поддержка 24/7
 
-🎯 **Начните с кнопки \"Сигналы\"!**
+🎯 **Начните с кнопки "Сигналы"!**
     """
+    update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=get_main_keyboard(user_id))
 
-    await update.message.reply_text(
-        welcome_text,
-        parse_mode='Markdown',
-        reply_markup=get_main_keyboard(user_id)
-    )
-
-async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /signals"""
+def signals_command(update, context):
     user_id = update.effective_user.id
-
     try:
-        # Показываем статус загрузки
-        loading_msg = await update.message.reply_text(
+        loading_msg = update.message.reply_text(
             "**ПОЛУЧАЮ АКТУАЛЬНЫЕ СИГНАЛЫ...**\nЗапрашиваю рыночные данные...",
             reply_markup=get_main_keyboard(user_id)
         )
 
-        # Получаем сигналы
-        signals, error = await generate_comprehensive_signals(user_id)
-
-        # Удаляем сообщение о загрузки
-        await loading_msg.delete()
+        signals, error = run_async(generate_comprehensive_signals(user_id))
+        loading_msg.delete()
 
         if error:
-            await update.message.reply_text(error, reply_markup=get_main_keyboard(user_id))
+            update.message.reply_text(error, reply_markup=get_main_keyboard(user_id))
             return
 
-        # Отправляем сигналы
         for signal in signals:
-            await update.message.reply_text(
-                signal,
-                parse_mode='Markdown',
-                reply_markup=get_main_keyboard(user_id)
-            )
+            update.message.reply_text(signal, parse_mode='Markdown', reply_markup=get_main_keyboard(user_id))
 
     except Exception as e:
         print(f"❌ Ошибка в signals_command: {e}")
-        await update.message.reply_text(
+        update.message.reply_text(
             "⚠️ Произошла ошибка при получении сигналов",
             reply_markup=get_main_keyboard(user_id)
         )
 
-async def subscription_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды подписки"""
+def subscription_command(update, context):
     user_id = update.effective_user.id
 
-    subscription_text = """
+    subscription_text = f"""
 💎 **ПОДПИСКА НА ПРЕМИУМ**
 
 **1 месяц: 9 USDT**
@@ -838,7 +822,7 @@ USDT (TRC20): `TF33keB2N3P226zxFfESVCvXCFQMjnMXQh`
 Ваш ID: `{user_id}`
 
 **Активация в течение 15 минут!**
-    """.format(user_id=user_id)
+    """
 
     keyboard = [
         [InlineKeyboardButton("📤 Отправить квитанцию", url="https://t.me/CryptoSignalsSupportBot")],
@@ -847,21 +831,15 @@ USDT (TRC20): `TF33keB2N3P226zxFfESVCvXCFQMjnMXQh`
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        subscription_text,
-        parse_mode='Markdown',
-        reply_markup=reply_markup
-    )
+    update.message.reply_text(subscription_text, parse_mode='Markdown', reply_markup=reply_markup)
 
-async def pumpdump_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды Pump/Dump"""
+def pumpdump_command(update, context):
     user_id = update.effective_user.id
 
-    # Проверяем премиум статус для обычных пользователей
     if not is_admin(user_id):
         user_data = user_db.get_user(user_id)
-        if not user_data[1]:  # Если не премиум
-            await update.message.reply_text(
+        if not user_db.check_premium_status(user_id):
+            update.message.reply_text(
                 "🔒 **Pump/Dump мониторинг доступен только для премиум пользователей!**\n\n"
                 "💎 Оформите подписку для доступа к эксклюзивным данным.",
                 reply_markup=get_main_keyboard(user_id)
@@ -869,21 +847,16 @@ async def pumpdump_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     try:
-        # Показываем статус загрузки
-        loading_msg = await update.message.reply_text(
+        loading_msg = update.message.reply_text(
             "🔍 **АНАЛИЗИРУЮ РЫНОК...**\nПолучаю актуальные данные...",
             reply_markup=get_main_keyboard(user_id)
         )
 
-        # Получаем REAL pump/dump сигналы
-        alerts = await pump_dump_monitor.check_pump_dump_signals()
-
-        # Удаляем сообщение о загрузке
-        await loading_msg.delete()
+        alerts = run_async(pump_dump_monitor.check_pump_dump_signals())
+        loading_msg.delete()
 
         if alerts:
-            # Отправляем REAL сигналы
-            for alert in alerts[:3]:  # Максимум 3 сигнала за раз
+            for alert in alerts[:3]:
                 signal_text = f"""
 {alert['type']} СИГНАЛ! ⚡
 
@@ -901,21 +874,14 @@ async def pumpdump_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ⏰ **Обнаружено:** {datetime.now().strftime('%H:%M %d.%m.%Y')}
                 """
-
-                await update.message.reply_text(
-                    signal_text,
-                    parse_mode='Markdown',
-                    reply_markup=get_main_keyboard(user_id)
-                )
+                update.message.reply_text(signal_text, parse_mode='Markdown', reply_markup=get_main_keyboard(user_id))
         else:
-            # Если нет активных pump/dump, показываем обзор рынка
-            market_overview = await pump_dump_monitor.get_market_overview()
-
+            market_overview = run_async(pump_dump_monitor.get_market_overview())
             if market_overview:
                 overview_text = "📊 **ОБЗОР РЫНОЧНОЙ ВОЛАТИЛЬНОСТИ**\n\n"
                 overview_text += "🔍 **Активы с высокой активностью:**\n\n"
 
-                for signal in market_overview[:5]:  # Показываем топ-5
+                for signal in market_overview[:5]:
                     overview_text += f"""**{signal['symbol']}**
 Цена: ${signal['price']:,.2f}
 Изменение: {signal['change']:+.1f}%
@@ -924,21 +890,10 @@ async def pumpdump_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 """
 
-                overview_text += f"""\n💎 **Премиум функции:**
-• Мгновенные уведомления о pump/dump
-• Расширенный анализ
-• Приоритетные сигналы
-
-⏰ Данные обновлены: {datetime.now().strftime('%H:%M %d.%m.%Y')}"""
-
-                await update.message.reply_text(
-                    overview_text,
-                    parse_mode='Markdown',
-                    reply_markup=get_main_keyboard(user_id)
-                )
+                overview_text += f"\n⏰ Данные обновлены: {datetime.now().strftime('%H:%M %d.%m.%Y')}"
+                update.message.reply_text(overview_text, parse_mode='Markdown', reply_markup=get_main_keyboard(user_id))
             else:
-                # Если рынок совсем спокойный
-                await update.message.reply_text(
+                update.message.reply_text(
                     "📊 **РЫНОК В СТАБИЛЬНОМ СОСТОЯНИИ**\n\n"
                     "В настоящее время нет активных pump/dump сигналов.\n"
                     "Рынок демонстрирует низкую волатильность.\n\n"
@@ -950,15 +905,9 @@ async def pumpdump_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         print(f"❌ Ошибка в pumpdump_command: {e}")
-        await update.message.reply_text(
-            "⚠️ Ошибка получения данных Pump/Dump",
-            reply_markup=get_main_keyboard(user_id)
-        )
+        update.message.reply_text("⚠️ Ошибка получения данных Pump/Dump", reply_markup=get_main_keyboard(user_id))
 
-async def support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды поддержки"""
-    user_id = update.effective_user.id
-
+def support_command(update, context):
     support_text = """
 🆘 **ПОДДЕРЖКА**
 
@@ -970,14 +919,6 @@ async def support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Вопросы по оплате
 • Активация премиум подписки
 • Проблемы с ботом
-
-⏰ **Время ответа:** до 15 минут
-
-💡 **Частые вопросы:**
-• Оплата - USDT (TRC20)
-• Активация - до 15 минут
-• Сигналы - обновляются каждые 2 часа
-• Данные - реальные цены с бирж
     """
 
     keyboard = [
@@ -987,18 +928,13 @@ async def support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        support_text,
-        parse_mode='Markdown',
-        reply_markup=reply_markup
-    )
+    update.message.reply_text(support_text, parse_mode='Markdown', reply_markup=reply_markup)
 
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Панель администратора"""
+def admin_panel(update, context):
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
-        await update.message.reply_text("❌ Доступ запрещен")
+        update.message.reply_text("❌ Доступ запрещен")
         return
 
     keyboard = [
@@ -1009,24 +945,16 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "👨‍💻 **ПАНЕЛЬ АДМИНИСТРАТОРА**\n\n"
-        "Выберите действие:",
-        reply_markup=reply_markup
-    )
+    update.message.reply_text("👨‍💻 **ПАНЕЛЬ АДМИНИСТРАТОРА**\n\nВыберите действие:", parse_mode='Markdown', reply_markup=reply_markup)
 
-# ================== КОМАНДЫ УПРАВЛЕНИЯ ПРЕМИУМ ==================
-
-async def activate_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Активировать премиум подписку (только для админа)"""
-    user_id = update.effective_user.id
-
-    if not is_admin(user_id):
-        await update.message.reply_text("❌ Доступ запрещен")
+# ================== АДМИН-КОМАНДЫ ==================
+def activate_premium_command(update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Доступ запрещен")
         return
 
     if not context.args:
-        await update.message.reply_text("❌ Использование: /activate_premium <user_id> [дней=30]")
+        update.message.reply_text("❌ Использование: /activate_premium <user_id> [дней=30]")
         return
 
     try:
@@ -1034,83 +962,70 @@ async def activate_premium_command(update: Update, context: ContextTypes.DEFAULT
         days = int(context.args[1]) if len(context.args) > 1 else 30
 
         if user_db.activate_premium(target_user_id, days):
-            await update.message.reply_text(f"✅ Премиум активирован для пользователя {target_user_id} на {days} дней")
-
-            # Уведомляем пользователя
+            update.message.reply_text(f"✅ Премиум активирован для пользователя {target_user_id} на {days} дней")
             try:
-                await context.bot.send_message(
+                context.bot.send_message(
                     chat_id=target_user_id,
                     text=f"🎉 **ВАШ ПРЕМИУМ АКТИВИРОВАН!**\n\n"
                          f"Подписка активна на {days} дней\n"
                          "Теперь вам доступны:\n"
-                         "• Неограниченное количество сигналов (100+ монет)\n"
+                         "• Неограниченные сигналы (100+ монет)\n"
                          "• Pump/Dump мониторинг всех рынков\n"
                          "• Приоритетная поддержка\n\n"
                          "💎 Добро пожаловать в клуб премиум пользователей!",
                     parse_mode='Markdown'
                 )
-            except:
+            except Exception:
                 print(f"Не удалось уведомить пользователя {target_user_id}")
-
         else:
-            await update.message.reply_text("❌ Ошибка активации премиума")
+            update.message.reply_text("❌ Ошибка активации премиума")
 
     except ValueError:
-        await update.message.reply_text("❌ Неверный формат. Использование: /activate_premium <user_id> [дней]")
+        update.message.reply_text("❌ Неверный формат. Использование: /activate_premium <user_id> [дней]")
 
-async def deactivate_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Деактивировать премиум подписку (только для админа)"""
-    user_id = update.effective_user.id
-
-    if not is_admin(user_id):
-        await update.message.reply_text("❌ Доступ запрещен")
+def deactivate_premium_command(update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Доступ запрещен")
         return
 
     if not context.args:
-        await update.message.reply_text("❌ Использование: /deactivate_premium <user_id>")
+        update.message.reply_text("❌ Использование: /deactivate_premium <user_id>")
         return
 
     try:
         target_user_id = int(context.args[0])
 
         if user_db.deactivate_premium(target_user_id):
-            await update.message.reply_text(f"✅ Премиум деактивирован для пользователя {target_user_id}")
-
-            # Уведомляем пользователя
+            update.message.reply_text(f"✅ Премиум деактивирован для пользователя {target_user_id}")
             try:
-                await context.bot.send_message(
+                context.bot.send_message(
                     chat_id=target_user_id,
                     text="ℹ️ **ВАША ПРЕМИУМ ПОДПИСКА ЗАВЕРШЕНА**\n\n"
                          "Спасибо что пользовались нашим сервисом!\n"
                          "Для возобновления доступа оформите новую подписку.",
                     parse_mode='Markdown'
                 )
-            except:
+            except Exception:
                 print(f"Не удалось уведомить пользователя {target_user_id}")
-
         else:
-            await update.message.reply_text("❌ Ошибка деактивации премиума")
+            update.message.reply_text("❌ Ошибка деактивации премиума")
 
     except ValueError:
-        await update.message.reply_text("❌ Неверный user_id")
+        update.message.reply_text("❌ Неверный user_id")
 
-async def check_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Проверить статус премиум подписки"""
+def check_premium_command(update, context):
     user_id = update.effective_user.id
 
     if not is_admin(user_id) and not context.args:
-        # Если обычный пользователь без аргументов - показываем его статус
         user_data = user_db.get_user(user_id)
-        is_premium = user_data[1]
-
-        if is_premium:
-            await update.message.reply_text("✅ У вас активна премиум подписка!")
+        if user_db.check_premium_status(user_id):
+            update.message.reply_text("✅ У вас активна премиум подписка!")
         else:
-            await update.message.reply_text("❌ У вас нет активной премиум подписки")
+            update.message.reply_text("❌ У вас нет активной премиум подписки")
         return
 
     if not context.args:
-        await update.message.reply_text("❌ Использование: /check_premium [user_id]")
+        update.message.reply_text("❌ Использование: /check_premium [user_id]")
         return
 
     try:
@@ -1118,66 +1033,58 @@ async def check_premium_command(update: Update, context: ContextTypes.DEFAULT_TY
         is_premium = user_db.check_premium_status(target_user_id)
 
         if is_premium:
-            await update.message.reply_text(f"✅ Пользователь {target_user_id} имеет активную премиум подписку")
+            update.message.reply_text(f"✅ Пользователь {target_user_id} имеет активную премиум подписку")
         else:
-            await update.message.reply_text(f"❌ Пользователь {target_user_id} не имеет активной премиум подписки")
+            update.message.reply_text(f"❌ Пользователь {target_user_id} не имеет активной премиум подписки")
 
     except ValueError:
-        await update.message.reply_text("❌ Неверный user_id")
+        update.message.reply_text("❌ Неверный user_id")
 
-async def list_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать всех премиум пользователей (только для админа)"""
+def list_premium_command(update, context):
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
-        await update.message.reply_text("❌ Доступ запрещен")
+        update.message.reply_text("❌ Доступ запрещен")
         return
 
     premium_users = user_db.get_premium_users()
 
     if not premium_users:
-        await update.message.reply_text("📊 Нет активных премиум пользователей")
+        update.message.reply_text("📊 Нет активных премиум пользователей")
         return
 
     message = "📊 **АКТИВНЫЕ ПРЕМИУМ ПОЛЬЗОВАТЕЛИ:**\n\n"
-
-    for idx, (user_id, expiry_date) in enumerate(premium_users[:50], 1):  # Ограничиваем 50
+    for idx, (uid, expiry_date) in enumerate(premium_users[:50], 1):
         try:
             expiry = datetime.fromisoformat(expiry_date).strftime('%d.%m.%Y') if expiry_date else "Бессрочно"
-            message += f"{idx}. ID: `{user_id}` - Истекает: {expiry}\n"
-        except:
-            message += f"{idx}. ID: `{user_id}`\n"
+            message += f"{idx}. ID: `{uid}` - Истекает: {expiry}\n"
+        except Exception:
+            message += f"{idx}. ID: `{uid}`\n"
 
     if len(premium_users) > 50:
         message += f"\n... и еще {len(premium_users) - 50} пользователей"
 
-    await update.message.reply_text(message, parse_mode='Markdown')
+    update.message.reply_text(message, parse_mode='Markdown')
 
-# ================== КОНЕЦ КОМАНД УПРАВЛЕНИЯ ==================
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик нажатий на кнопки"""
+# ================== CALLBACK И СООБЩЕНИЯ ==================
+def button_handler(update, context):
     query = update.callback_query
-    await query.answer()
+    query.answer()
 
     user_id = query.from_user.id
     data = query.data
 
     if data == "back_to_main":
-        await query.message.reply_text(
-            "🔙 Возврат в главное меню",
-            reply_markup=get_main_keyboard(user_id)
-        )
+        query.message.reply_text("🔙 Возврат в главное меню", reply_markup=get_main_keyboard(user_id))
 
     elif data == "subscription":
-        await subscription_command(update, context)
+        subscription_command(update, context)
 
     elif data == "support":
-        await support_command(update, context)
+        support_command(update, context)
 
     elif data == "admin_stats":
         if is_admin(user_id):
-            # Простая статистика
             stats_text = """
 📊 **СТАТИСТИКА СИСТЕМЫ**
 
@@ -1193,17 +1100,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚡ **Система:** Работает стабильно
 🔗 **API CoinGecko:** Активно
             """
-            await query.message.edit_text(stats_text, parse_mode='Markdown')
+            query.message.edit_text(stats_text, parse_mode='Markdown')
 
     elif data == "admin_test_signals":
         if is_admin(user_id):
-            # Администратор всегда получает реальные сигналы
-            signals, error = await generate_real_signals()
+            signals = run_async(generate_real_signals())
             if signals:
                 for signal in signals:
-                    await query.message.reply_text(signal, parse_mode='Markdown')
+                    query.message.reply_text(signal, parse_mode='Markdown')
             else:
-                await query.message.reply_text("❌ Ошибка генерации сигналов")
+                query.message.reply_text("❌ Ошибка генерации сигналов")
 
     elif data == "admin_manage_premium":
         if is_admin(user_id):
@@ -1214,19 +1120,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 Назад", callback_data="admin_back")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.message.edit_text(
-                "💎 **УПРАВЛЕНИЕ ПРЕМИУМ ПОДПИСКАМИ**\n\n"
-                "Выберите действие:",
-                reply_markup=reply_markup
-            )
+            query.message.edit_text("💎 **УПРАВЛЕНИЕ ПРЕМИУМ ПОДПИСКАМИ**\n\nВыберите действие:", parse_mode='Markdown', reply_markup=reply_markup)
 
     elif data == "admin_activate_premium":
         if is_admin(user_id):
-            await query.message.edit_text(
+            query.message.edit_text(
                 "➕ **АКТИВАЦИЯ ПРЕМИУМ**\n\n"
                 "Используйте команду:\n"
                 "`/activate_premium <user_id> [дней=30]`\n\n"
-                "Пример:\n"
+                "Примеры:\n"
                 "`/activate_premium 123456789`\n"
                 "`/activate_premium 123456789 90`",
                 parse_mode='Markdown'
@@ -1234,7 +1136,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "admin_deactivate_premium":
         if is_admin(user_id):
-            await query.message.edit_text(
+            query.message.edit_text(
                 "➖ **ДЕАКТИВАЦИЯ ПРЕМИУМ**\n\n"
                 "Используйте команду:\n"
                 "`/deactivate_premium <user_id>`\n\n"
@@ -1245,57 +1147,41 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "admin_list_premium":
         if is_admin(user_id):
-            await list_premium_command(update, context)
+            list_premium_command(update, context)
 
     elif data == "admin_back":
         if is_admin(user_id):
-            await admin_panel(update, context)
+            admin_panel(update, context)
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик текстовых сообщений с ЗАЩИТОЙ админских команд"""
+def handle_message(update, context):
     text = update.message.text
     user_id = update.effective_user.id
 
-    # ========== ЗАЩИТА: Скрываем админские команды от обычных пользователей ==========
     admin_commands = [
         '/activate_premium', '/deactivate_premium',
         '/list_premium', '/check_premium', '/check_expired',
         '/expiring_premiums'
     ]
 
-    # Если пользователь не админ и пытается использовать админскую команду
     if any(text.startswith(cmd) for cmd in admin_commands) and not is_admin(user_id):
-        # Отправляем "неизвестная команда" вместо "доступ запрещен"
-        await update.message.reply_text(
-            "❓ Неизвестная команда. Используйте кнопки меню.",
-            reply_markup=get_main_keyboard(user_id)
-        )
-        return  # Выходим - не обрабатываем дальше
-    # ========== КОНЕЦ ЗАЩИТЫ ==========
+        update.message.reply_text("❓ Неизвестная команда. Используйте кнопки меню.", reply_markup=get_main_keyboard(user_id))
+        return
 
     if text == "🎯 Сигналы":
-        await signals_command(update, context)
-
+        signals_command(update, context)
     elif text == "📈 Pump/Dump":
-        await pumpdump_command(update, context)
-
+        pumpdump_command(update, context)
     elif text == "💎 Подписка":
-        await subscription_command(update, context)
-
+        subscription_command(update, context)
     elif text == "🆘 Поддержка":
-        await support_command(update, context)
-
+        support_command(update, context)
     elif text == "👨‍💻 Админ-панель":
-        await admin_panel(update, context)
-
+        admin_panel(update, context)
     else:
-        await update.message.reply_text(
-            "🤖 Используйте кнопки меню для навигации",
-            reply_markup=get_main_keyboard(user_id)
-        )
+        update.message.reply_text("🤖 Используйте кнопки меню для навигации", reply_markup=get_main_keyboard(user_id))
 
+# ================== MAIN ==================
 def main():
-    """Основная функция"""
     print("=" * 60)
     print("🚀 ЗАПУСК CRYPTO SIGNALS PRO BOT")
     print("=" * 60)
@@ -1305,18 +1191,17 @@ def main():
     print(f"💎 Цена подписки: 9 USDT")
     print("=" * 60)
 
-    # Создаем Updater и Dispatcher
     updater = Updater(token=BOT_TOKEN, use_context=True)
     dispatcher = updater.dispatcher
 
-    # Добавляем обработчики команд
+    # Команды пользователя
     dispatcher.add_handler(CommandHandler("start", start_command))
     dispatcher.add_handler(CommandHandler("signals", signals_command))
     dispatcher.add_handler(CommandHandler("subscription", subscription_command))
     dispatcher.add_handler(CommandHandler("pumpdump", pumpdump_command))
     dispatcher.add_handler(CommandHandler("support", support_command))
 
-    # Команды управления премиум
+    # Админ-команды
     dispatcher.add_handler(CommandHandler("activate_premium", activate_premium_command))
     dispatcher.add_handler(CommandHandler("deactivate_premium", deactivate_premium_command))
     dispatcher.add_handler(CommandHandler("check_premium", check_premium_command))
@@ -1332,17 +1217,8 @@ def main():
     print("🔗 Подключение к CoinGecko API...")
     print("=" * 60)
 
-    # Запускаем бота
     updater.start_polling()
     updater.idle()
 
-
 if __name__ == '__main__':
     main()
-
-
-
-
-
-
-
