@@ -1,6 +1,8 @@
 import os
 import threading
 import time
+from keep_alive import keep_alive
+keep_alive()
 
 os.environ['PYTHONUNBUFFERED'] = '1'
 
