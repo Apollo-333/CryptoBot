@@ -159,17 +159,16 @@ COINGECKO_IDS = {
 }
 
 class UserDatabase:
-    def __init__(self, db_path='users.db'):
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+    def __init__(self):
+        self.conn = psycopg.connect(os.getenv("DATABASE_URL"))
         self.cursor = self.conn.cursor()
         self.init_db()
 
     def init_db(self):
-        """Инициализировать базу данных"""
         try:
             self.cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
+                    user_id BIGINT PRIMARY KEY,
                     is_premium BOOLEAN DEFAULT FALSE,
                     signals_today INTEGER DEFAULT 0,
                     last_reset_date TEXT,
@@ -177,127 +176,83 @@ class UserDatabase:
                 )
             ''')
             self.conn.commit()
-            print("✅ База данных инициализирована")
+            print("✅ PostgreSQL база инициализирована")
         except Exception as e:
             print(f"❌ Ошибка при инициализации БД: {e}")
 
     def add_user(self, user_id):
-        """Добавить нового пользователя"""
         try:
-            self.cursor.execute('''INSERT OR IGNORE INTO users 
-                                  (user_id, is_premium, signals_today, last_reset_date) 
-                                  VALUES (?, ?, ?, ?)''', 
-                               (user_id, False, 0, datetime.now().date().isoformat()))
+            self.cursor.execute('''
+                INSERT INTO users (user_id, is_premium, signals_today, last_reset_date)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id) DO NOTHING
+            ''', (user_id, False, 0, datetime.now().date().isoformat()))
             self.conn.commit()
-            print(f"✅ Добавлен новый пользователь: {user_id}")
         except Exception as e:
             print(f"❌ Ошибка при добавлении пользователя: {e}")
 
     def get_user(self, user_id):
-        """Получить данные пользователя"""
         try:
-            self.cursor.execute('''SELECT user_id, is_premium, signals_today, last_reset_date 
-                                  FROM users WHERE user_id = ?''', (user_id,))
+            self.cursor.execute('''
+                SELECT user_id, is_premium, signals_today, last_reset_date
+                FROM users WHERE user_id = %s
+            ''', (user_id,))
             result = self.cursor.fetchone()
-
             if result:
-                if len(result) == 4:
-                    return result
-                else:
-                    # Если не хватает данных, возвращаем значения по умолчанию
-                    user_id = result[0]
-                    is_premium = result[1] if len(result) > 1 else False
-                    signals_today = result[2] if len(result) > 2 else 0
-                    last_reset_date = result[3] if len(result) > 3 else datetime.now().date().isoformat()
-                    return (user_id, is_premium, signals_today, last_reset_date)
+                return result
             else:
-                # Если пользователя нет, создаем нового
                 self.add_user(user_id)
                 return (user_id, False, 0, datetime.now().date().isoformat())
-
         except Exception as e:
             print(f"❌ Ошибка при получении пользователя: {e}")
             return (user_id, False, 0, datetime.now().date().isoformat())
 
     def can_send_signal(self, user_id):
-        """Проверить, может ли пользователь получить сигнал"""
         try:
-            user_data = self.get_user(user_id)
-            user_id, is_premium, signals_today, last_reset_date = user_data
-
-            # Сбрасываем счетчик если новый день
+            user_id, is_premium, signals_today, last_reset_date = self.get_user(user_id)
             today = datetime.now().date().isoformat()
             if last_reset_date != today:
-                self.cursor.execute('''UPDATE users SET signals_today = 0, last_reset_date = ? 
-                                      WHERE user_id = ?''', (today, user_id))
+                self.cursor.execute('''
+                    UPDATE users SET signals_today = 0, last_reset_date = %s WHERE user_id = %s
+                ''', (today, user_id))
                 self.conn.commit()
                 signals_today = 0
-
-            # Лимиты: премиум - безлимит, обычные - 1 сигнал в день
             limit = 1000 if is_premium else 1
             return signals_today < limit
-
         except Exception as e:
             print(f"❌ Ошибка проверки лимита сигналов: {e}")
             return True
 
     def increment_signal_count(self, user_id):
-        """Увеличить счетчик сигналов"""
         try:
-            self.cursor.execute('''UPDATE users SET signals_today = signals_today + 1 
-                                  WHERE user_id = ?''', (user_id,))
+            self.cursor.execute('''
+                UPDATE users SET signals_today = signals_today + 1 WHERE user_id = %s
+            ''', (user_id,))
             self.conn.commit()
         except Exception as e:
             print(f"❌ Ошибка увеличения счетчика: {e}")
 
     def activate_premium(self, user_id, duration_days=30):
-        """Активировать премиум подписку"""
         try:
             expiry_date = (datetime.now() + timedelta(days=duration_days)).isoformat()
-            self.cursor.execute('''UPDATE users SET is_premium = TRUE, premium_expiry = ? 
-                                  WHERE user_id = ?''', (expiry_date, user_id))
+            self.cursor.execute('''
+                UPDATE users SET is_premium = TRUE, premium_expiry = %s WHERE user_id = %s
+            ''', (expiry_date, user_id))
             self.conn.commit()
-            print(f"💎 Премиум активирован для пользователя {user_id}")
             return True
         except Exception as e:
-            print(f"❌ Ошибка при активации премиума: {e}")
+            print(f"❌ Ошибка активации премиума: {e}")
             return False
 
     def deactivate_premium(self, user_id):
-        """Деактивировать премиум подписку"""
         try:
-            self.cursor.execute('''UPDATE users SET is_premium = FALSE 
-                                  WHERE user_id = ?''', (user_id,))
+            self.cursor.execute('''
+                UPDATE users SET is_premium = FALSE WHERE user_id = %s
+            ''', (user_id,))
             self.conn.commit()
-            print(f"🔴 Премиум деактивирован для пользователя {user_id}")
             return True
         except Exception as e:
-            print(f"❌ Ошибка при деактивации премиума: {e}")
-            return False
-
-    def get_premium_users(self):
-        """Получить всех премиум пользователей"""
-        try:
-            self.cursor.execute('''SELECT user_id, premium_expiry FROM users 
-                                  WHERE is_premium = TRUE''')
-            return self.cursor.fetchall()
-        except Exception as e:
-            print(f"❌ Ошибка получения премиум пользователей: {e}")
-            return []
-
-    def check_premium_status(self, user_id):
-        """Проверить статус премиум подписки"""
-        try:
-            self.cursor.execute('''SELECT is_premium, premium_expiry FROM users 
-                                  WHERE user_id = ?''', (user_id,))
-            result = self.cursor.fetchone()
-
-            if result:
-                is_premium, expiry_date = result
-                return is_premium
-            return False
-        except Exception as e:
-            print(f"❌ Ошибка при проверке премиума: {e}")
+            print(f"❌ Ошибка деактивации премиума: {e}")
             return False
 
 # Создаем глобальный экземпляр базы данных
@@ -1381,6 +1336,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
