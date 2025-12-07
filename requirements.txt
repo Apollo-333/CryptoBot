@@ -4,12 +4,10 @@ Cython==3.0.8
 numpy==1.26.4
 pandas==2.2.3
 ccxt==4.2.77
-python-telegram-bot==20.7
+python-telegram-bot==13.15   # стабильная версия под старый синтаксис (Updater, Dispatcher)
 python-dotenv==1.0.0
 ta==0.10.2
 flask==2.3.3
 gunicorn==21.2.0
 requests==2.31.0
-psycopg[binary]==3.2.3
-
-
+psycopg[binary]==3.2.3       # современный драйвер PostgreSQL
