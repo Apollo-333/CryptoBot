@@ -2,13 +2,13 @@ import os
 import psycopg
 import logging
 from datetime import datetime, timedelta
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-from telegram import KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 import requests
 import random
 import aiohttp
 import asyncio
+
 
 # Настройка логирования
 logging.basicConfig(
@@ -1305,24 +1305,26 @@ def main():
     print(f"💎 Цена подписки: 9 USDT")
     print("=" * 60)
 
-    # Создаем приложение
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Создаем Updater и Dispatcher
+    updater = Updater(token=BOT_TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
 
     # Добавляем обработчики команд
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("signals", signals_command))
-    application.add_handler(CommandHandler("subscription", subscription_command))
-    application.add_handler(CommandHandler("pumpdump", pumpdump_command))
-    application.add_handler(CommandHandler("support", support_command))
+    dispatcher.add_handler(CommandHandler("start", start_command))
+    dispatcher.add_handler(CommandHandler("signals", signals_command))
+    dispatcher.add_handler(CommandHandler("subscription", subscription_command))
+    dispatcher.add_handler(CommandHandler("pumpdump", pumpdump_command))
+    dispatcher.add_handler(CommandHandler("support", support_command))
 
     # Команды управления премиум
-    application.add_handler(CommandHandler("activate_premium", activate_premium_command))
-    application.add_handler(CommandHandler("deactivate_premium", deactivate_premium_command))
-    application.add_handler(CommandHandler("check_premium", check_premium_command))
-    application.add_handler(CommandHandler("list_premium", list_premium_command))
+    dispatcher.add_handler(CommandHandler("activate_premium", activate_premium_command))
+    dispatcher.add_handler(CommandHandler("deactivate_premium", deactivate_premium_command))
+    dispatcher.add_handler(CommandHandler("check_premium", check_premium_command))
+    dispatcher.add_handler(CommandHandler("list_premium", list_premium_command))
 
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Callback и сообщения
+    dispatcher.add_handler(CallbackQueryHandler(button_handler))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
     print("✅ Бот готов к работе!")
     print("💎 Система премиум подписок активна")
@@ -1331,10 +1333,13 @@ def main():
     print("=" * 60)
 
     # Запускаем бота
-    application.run_polling()
+    updater.start_polling()
+    updater.idle()
+
 
 if __name__ == '__main__':
     main()
+
 
 
 
