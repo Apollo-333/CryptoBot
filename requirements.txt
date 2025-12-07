@@ -11,3 +11,5 @@ flask==2.3.3
 gunicorn==21.2.0
 requests==2.31.0
 psycopg[binary]==3.2.3       # современный драйвер PostgreSQL
+imghdr2==0.3.0
+
