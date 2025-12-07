@@ -195,6 +195,20 @@ def handle_message(update, context):
     if update.message.text and not update.message.text.startswith('/'):
         forward_to_admin(update, context)
 
-# Экспортируем переменные для start_both.py
+def main():
+    """Запуск бота поддержки"""
+    print("🚀 Запуск бота поддержки...")
+    
+    from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
+    
+    updater = Updater(SUPPORT_BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+    
+    # Все обработчики поддержки...
+    
+    print("✅ Бот поддержки запущен...")
+    updater.start_polling()
+    updater.idle()
+
 if __name__ == "__main__":
-    print("⚠️ Запускайте через start_both.py!")
+    main()
