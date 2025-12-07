@@ -1181,7 +1181,7 @@ def handle_message(update, context):
         update.message.reply_text("🤖 Используйте кнопки меню для навигации", reply_markup=get_main_keyboard(user_id))
 
 def main():
-    """Основная функция запуска (версия 13.15)"""
+    """Основная функция запуска"""
     print("=" * 60)
     print("🚀 ЗАПУСК CRYPTO SIGNALS PRO BOT")
     print("=" * 60)
@@ -1191,13 +1191,38 @@ def main():
     updater = Updater(token=BOT_TOKEN, use_context=True)
     dispatcher = updater.dispatcher
     
-    # Все твои обработчики...
+    # Все твои обработчики как есть...
     dispatcher.add_handler(CommandHandler("start", start_command))
-    # ... остальные хендлеры как у тебя
+    dispatcher.add_handler(CommandHandler("signals", signals_command))
+    dispatcher.add_handler(CommandHandler("subscription", subscription_command))
+    dispatcher.add_handler(CommandHandler("pumpdump", pumpdump_command))
+    dispatcher.add_handler(CommandHandler("support", support_command))
+    
+    # Админ-команды
+    dispatcher.add_handler(CommandHandler("activate_premium", activate_premium_command))
+    dispatcher.add_handler(CommandHandler("deactivate_premium", deactivate_premium_command))
+    dispatcher.add_handler(CommandHandler("check_premium", check_premium_command))
+    dispatcher.add_handler(CommandHandler("list_premium", list_premium_command))
+    
+    # Callback и сообщения
+    dispatcher.add_handler(CallbackQueryHandler(button_handler))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
     
     print("✅ Бот готов к работе!")
+    print("💎 Система премиум подписок активна")
+    print("🔔 Pump/Dump мониторинг работает при запросах")
+    print("=" * 60)
+    
+    # ЗАПУСКАЕМ БЕЗ idle()!
     updater.start_polling()
-    updater.idle()
+    
+    # Вместо idle() делаем бесконечный цикл
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Остановка бота...")
+        updater.stop()
 
 if __name__ == '__main__':
     main()
