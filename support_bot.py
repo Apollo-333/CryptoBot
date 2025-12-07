@@ -1,7 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 import logging
-import sqlite3
 import os
 from datetime import datetime
 
@@ -22,12 +21,11 @@ print(f"👨‍💻 ADMIN_ID: {ADMIN_ID}")
 # Словарь для отслеживания активных диалогов
 active_conversations = {}
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start_command(update, context):
     """Приветственное сообщение бота поддержки"""
     user = update.effective_user
     print(f"🎯 Новый пользователь: {user.id} - {user.first_name}")
 
-    # Сохраняем информацию о пользователе
     active_conversations[user.id] = {
         'name': f"{user.first_name} {user.last_name or ''}",
         'username': user.username,
@@ -35,22 +33,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     welcome_text = f"""
-🤖 **Crypto Signals Support**
+🤖 Crypto Signals Support
 
 Здравствуйте, {user.first_name}! Я бот технической поддержки.
 
-📋 **Я могу помочь с:**
+📋 Я могу помочь с:
 • Техническими проблемами с ботом
 • Вопросами по оплате и подписке
 • Активацией премиум доступа
 • Любыми другими вопросами
 
-💡 **Для быстрого решения:**
+💡 Для быстрого решения:
 1. Опишите вашу проблему подробно
-2. Укажите ваш ID: `{user.id}`
+2. Укажите ваш ID: {user.id}
 3. Приложите скриншот если есть
 
-⏰ **Время ответа:** до 15 минут
+⏰ Время ответа: до 15 минут
     """
 
     keyboard = [
@@ -60,30 +58,29 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=reply_markup)
+    update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=reply_markup)
 
-    # Уведомляем администратора о новом обращении
     admin_notification = f"""
-🔔 **НОВОЕ ОБРАЩЕНИЕ В ПОДДЕРЖКУ**
+🔔 НОВОЕ ОБРАЩЕНИЕ В ПОДДЕРЖКУ
 
-👤 **Пользователь начал диалог:**
+👤 Пользователь начал диалог:
 Имя: {user.first_name} {user.last_name or ''}
-ID: `{user.id}`
+ID: {user.id}
 Username: @{user.username or 'нет'}
 
 🕒 Время: {update.message.date.strftime('%H:%M %d.%m.%Y')}
 
-💬 **Отправьте ответ командой:**
-`/reply {user.id} ваш ответ`
+💬 Для ответа отправьте:
+/reply {user.id} ваш ответ
     """
 
     try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_notification, parse_mode='Markdown')
-        print(f"✅ Уведомление отправлено администратору")
+        context.bot.send_message(chat_id=ADMIN_ID, text=admin_notification, parse_mode='Markdown')
+        print("✅ Уведомление отправлено администратору")
     except Exception as e:
         print(f"❌ Ошибка отправки уведомления: {e}")
 
-async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def forward_to_admin(update, context):
     """Пересылка сообщения пользователя администратору"""
     user = update.effective_user
     message = update.message
@@ -91,204 +88,133 @@ async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"📨 Сообщение от {user.id}: {message.text}")
 
     try:
-        # Сначала отправляем подтверждение пользователю
-        await message.reply_text(
-            "✅ Ваше сообщение получено! Администратор свяжется с вами в течение 15 минут.",
-            parse_mode='Markdown'
-        )
+        message.reply_text("✅ Ваше сообщение получено! Администратор свяжется с вами в течение 15 минут.", parse_mode='Markdown')
+        message.forward(chat_id=ADMIN_ID)
 
-        # Пересылаем оригинальное сообщение администратору
-        await message.forward(chat_id=ADMIN_ID)
-
-        # Отправляем информацию о пользователе
         user_info = f"""
-👤 **Сообщение от пользователя:**
+👤 Сообщение от пользователя:
 Имя: {user.first_name} {user.last_name or ''}
-ID: `{user.id}`
+ID: {user.id}
 Username: @{user.username or 'нет'}
 
 🕒 Время: {message.date.strftime('%H:%M %d.%m.%Y')}
 
-💬 **Для ответа отправьте:**
-`/reply {user.id} ваш текст ответа`
+💬 Для ответа:
+/reply {user.id} ваш текст ответа
         """
-
-        await context.bot.send_message(
-            chat_id=ADMIN_ID, 
-            text=user_info, 
-            parse_mode='Markdown'
-        )
-
-        print(f"✅ Сообщение переслано администратору")
+        context.bot.send_message(chat_id=ADMIN_ID, text=user_info, parse_mode='Markdown')
+        print("✅ Сообщение переслано администратору")
 
     except Exception as e:
         print(f"❌ Ошибка пересылки: {e}")
-        await message.reply_text("❌ Произошла ошибка при отправке сообщения.")
+        message.reply_text("❌ Произошла ошибка при отправке сообщения.")
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка фотографий (скриншотов оплаты)"""
+def handle_photo(update, context):
+    """Обработка фотографий"""
     user = update.effective_user
     message = update.message
 
     print(f"📸 Фото от {user.id}")
 
     try:
-        # Сначала подтверждаем пользователю
-        await message.reply_text(
-            "✅ Скриншот получен! Администратор проверит его в течение 15 минут.",
-            parse_mode='Markdown'
-        )
+        message.reply_text("✅ Скриншот получен! Администратор проверит его в течение 15 минут.", parse_mode='Markdown')
+        message.forward(chat_id=ADMIN_ID)
 
-        # Пересылаем фото администратору
-        await message.forward(chat_id=ADMIN_ID)
-
-        # Уведомление администратора
         admin_notification = f"""
-📸 **ПОЛУЧЕН СКРИНШОТ ОПЛАТЫ**
+📸 ПОЛУЧЕН СКРИНШОТ ОПЛАТЫ
 
-👤 **От пользователя:**
+👤 От пользователя:
 Имя: {user.first_name} {user.last_name or ''}
-ID: `{user.id}`
+ID: {user.id}
 Username: @{user.username or 'нет'}
 
 🕒 Время: {message.date.strftime('%H:%M %d.%m.%Y')}
 
-💬 **Для ответа отправьте:**
-`/reply {user.id} ваш текст ответа`
+💬 Для ответа:
+/reply {user.id} ваш текст ответа
         """
-
-        await context.bot.send_message(
-            chat_id=ADMIN_ID, 
-            text=admin_notification, 
-            parse_mode='Markdown'
-        )
-
-        print(f"✅ Фото переслано администратору")
+        context.bot.send_message(chat_id=ADMIN_ID, text=admin_notification, parse_mode='Markdown')
+        print("✅ Фото переслано администратору")
 
     except Exception as e:
         print(f"❌ Ошибка пересылки фото: {e}")
 
-async def admin_reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда для ответа пользователю (только для админа)"""
+def admin_reply_command(update, context):
+    """Ответ пользователю (только для админа)"""
     user_id = update.effective_user.id
-
     if user_id != ADMIN_ID:
-        await update.message.reply_text("❌ Доступ запрещен")
+        update.message.reply_text("❌ Доступ запрещен")
         return
 
     if not context.args or len(context.args) < 2:
-        await update.message.reply_text("❌ Использование: /reply <user_id> <сообщение>")
+        update.message.reply_text("❌ Использование: /reply <user_id> <сообщение>")
         return
 
     try:
         target_user_id = int(context.args[0])
         message_text = ' '.join(context.args[1:])
-
-        # Отправляем сообщение пользователю
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=f"💬 **Ответ от поддержки:**\n\n{message_text}\n\n_Вы можете продолжить диалог в этом чате_",
-            parse_mode='Markdown'
-        )
-
-        # Подтверждаем администратору
-        await update.message.reply_text(f"✅ Ответ отправлен пользователю {target_user_id}")
-
-        # Логируем действие
+        context.bot.send_message(chat_id=target_user_id, text=f"💬 Ответ от поддержки:\n\n{message_text}", parse_mode='Markdown')
+        update.message.reply_text(f"✅ Ответ отправлен пользователю {target_user_id}")
         print(f"📤 Админ отправил ответ пользователю {target_user_id}")
-
     except Exception as e:
-        error_msg = f"❌ Не удалось отправить сообщение: {e}"
-        await update.message.reply_text(error_msg)
-        print(error_msg)
+        update.message.reply_text(f"❌ Не удалось отправить сообщение: {e}")
+        print(f"❌ Ошибка: {e}")
 
-async def handle_payment_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Информация об оплате"""
+def handle_payment_info(update, context):
     query = update.callback_query
-    await query.answer()
-
+    query.answer()
     payment_text = """
-💳 **Информация об оплате:**
+💳 Информация об оплате:
 
-💰 **Реквизиты:**
 USDT (TRC20): `TF33keB2N3P226zxFfESVCvXCFQMjnMXQh`
-
-💎 **Стоимость подписки:**
-1 месяц: 9 USDT
-
-📋 **Процесс оплаты:**
-1. Отправьте USDT на указанный адрес
-2. Сохраните скриншот/чек транзакции
-3. Отправьте его мне с указанием вашего ID
-4. Ожидайте активации (до 15 минут)
-
-❓ **Отправьте скриншот чека для активации подписки**
+Стоимость подписки: 1 месяц = 9 USDT
     """
+    query.message.reply_text(payment_text, parse_mode='Markdown')
 
-    await query.message.reply_text(payment_text, parse_mode='Markdown')
-
-async def handle_faq(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Частые вопросы"""
+def handle_faq(update, context):
     query = update.callback_query
-    await query.answer()
-
+    query.answer()
     faq_text = """
-❓ **Частые вопросы:**
+❓ Частые вопросы:
 
-🔧 **Бот не отвечает:**
-• Перезапустите бота командой /start
-• Проверьте подключение к интернету
+🔧 Бот не отвечает:
+• Перезапустите командой /start
+• Проверьте интернет
 
-💎 **Не приходят сигналы:**
-• Проверьте лимит бесплатных сигналов (1 в день)
-• Убедитесь что активирована премиум подписка
+💎 Не приходят сигналы:
+• Лимит бесплатных сигналов (1 в день)
+• Активируйте премиум
 
-⏰ **Подписка не активирована:**
+⏰ Подписка не активирована:
 • Отправьте скриншот оплаты
 • Ожидайте до 15 минут
-• Напишите нам если прошло больше времени
-
-📱 **Другие проблемы:**
-Опишите подробно вашу проблему ниже и я передам администратору.
     """
+    query.message.reply_text(faq_text, parse_mode='Markdown')
 
-    await query.message.reply_text(faq_text, parse_mode='Markdown')
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик текстовых сообщений"""
+def handle_message(update, context):
     if update.message.text and not update.message.text.startswith('/'):
-        await forward_to_admin(update, context)
+        forward_to_admin(update, context)
 
 def main():
-    """Запуск бота поддержки"""
     print("🚀 Запуск бота поддержки...")
-
     if not SUPPORT_BOT_TOKEN:
-        print("⚠️ SUPPORT_BOT_TOKEN не найден в переменных окружения")
-        print("💡 Добавьте SUPPORT_BOT_TOKEN в секреты для запуска бота поддержки")
+        print("⚠️ SUPPORT_BOT_TOKEN не найден")
         return
 
-    try:
-        application = Application.builder().token(SUPPORT_BOT_TOKEN).build()
+    updater = Updater(SUPPORT_BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
 
-        # Добавляем обработчики
-        application.add_handler(CommandHandler("start", start_command))
-        application.add_handler(CommandHandler("reply", admin_reply_command))
-        application.add_handler(CallbackQueryHandler(handle_payment_info, pattern="payment_info"))
-        application.add_handler(CallbackQueryHandler(handle_faq, pattern="faq"))
-        application.add_handler(CallbackQueryHandler(handle_faq, pattern="tech_issues"))
-        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    dp.add_handler(CommandHandler("start", start_command))
+    dp.add_handler(CommandHandler("reply", admin_reply_command))
+    dp.add_handler(CallbackQueryHandler(handle_payment_info, pattern="payment_info"))
+    dp.add_handler(CallbackQueryHandler(handle_faq, pattern="faq"))
+    dp.add_handler(CallbackQueryHandler(handle_faq, pattern="tech_issues"))
+    dp.add_handler(MessageHandler(Filters.photo, handle_photo))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
-        print("✅ Бот поддержки запущен и слушает сообщения...")
-        print("💡 Напишите в @CryptoSignalsSupportBot для теста")
-        print("👨‍💻 Для ответа пользователям используйте: /reply <user_id> <сообщение>")
+    print("✅ Бот поддержки запущен...")
+    updater.start_polling()
+    updater.idle()
 
-        application.run_polling()
-
-    except Exception as e:
-        print(f"❌ Критическая ошибка: {e}")
-        print("🔧 Проверьте токен бота")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
