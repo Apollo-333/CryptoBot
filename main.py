@@ -1180,6 +1180,24 @@ def handle_message(update, context):
     else:
         update.message.reply_text("🤖 Используйте кнопки меню для навигации", reply_markup=get_main_keyboard(user_id))
 
-# Экспортируем BOT_TOKEN для start_both.py
+def main():
+    """Основная функция запуска (версия 13.15)"""
+    print("=" * 60)
+    print("🚀 ЗАПУСК CRYPTO SIGNALS PRO BOT")
+    print("=" * 60)
+    
+    from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
+    
+    updater = Updater(token=BOT_TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
+    
+    # Все твои обработчики...
+    dispatcher.add_handler(CommandHandler("start", start_command))
+    # ... остальные хендлеры как у тебя
+    
+    print("✅ Бот готов к работе!")
+    updater.start_polling()
+    updater.idle()
+
 if __name__ == '__main__':
-    print("⚠️ Запускайте через start_both.py!")
+    main()
