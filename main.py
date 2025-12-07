@@ -1180,45 +1180,6 @@ def handle_message(update, context):
     else:
         update.message.reply_text("🤖 Используйте кнопки меню для навигации", reply_markup=get_main_keyboard(user_id))
 
-# ================== MAIN ==================
-def main():
-    print("=" * 60)
-    print("🚀 ЗАПУСК CRYPTO SIGNALS PRO BOT")
-    print("=" * 60)
-    print(f"📊 Реальные данные с CoinGecko API")
-    print(f"💰 Анализ {len(COINGECKO_IDS)} монет")
-    print(f"🤖 Бот поддержки: @CryptoSignalsSupportBot")
-    print(f"💎 Цена подписки: 9 USDT")
-    print("=" * 60)
-
-    updater = Updater(token=BOT_TOKEN, use_context=True)
-    dispatcher = updater.dispatcher
-
-    # Команды пользователя
-    dispatcher.add_handler(CommandHandler("start", start_command))
-    dispatcher.add_handler(CommandHandler("signals", signals_command))
-    dispatcher.add_handler(CommandHandler("subscription", subscription_command))
-    dispatcher.add_handler(CommandHandler("pumpdump", pumpdump_command))
-    dispatcher.add_handler(CommandHandler("support", support_command))
-
-    # Админ-команды
-    dispatcher.add_handler(CommandHandler("activate_premium", activate_premium_command))
-    dispatcher.add_handler(CommandHandler("deactivate_premium", deactivate_premium_command))
-    dispatcher.add_handler(CommandHandler("check_premium", check_premium_command))
-    dispatcher.add_handler(CommandHandler("list_premium", list_premium_command))
-
-    # Callback и сообщения
-    dispatcher.add_handler(CallbackQueryHandler(button_handler))
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
-
-    print("✅ Бот готов к работе!")
-    print("💎 Система премиум подписок активна")
-    print("🔔 Pump/Dump мониторинг работает при запросах")
-    print("🔗 Подключение к CoinGecko API...")
-    print("=" * 60)
-
-    updater.start_polling()
-    updater.idle()
-
+# Экспортируем BOT_TOKEN для start_both.py
 if __name__ == '__main__':
-    main()
+    print("⚠️ Запускайте через start_both.py!")
