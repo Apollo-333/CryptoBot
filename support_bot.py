@@ -1,4 +1,24 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+try:
+    import imghdr
+except ImportError:
+    # Импортируем наш фикс
+    try:
+        from imghdr_fix import ImghdrMock
+        import sys
+        sys.modules['imghdr'] = ImghdrMock()
+        import imghdr
+    except ImportError:
+        # Создаем простой фикс на месте
+        import sys
+        
+        class SimpleImghdr:
+            @staticmethod
+            def what(file, h=None):
+                return 'jpeg'  # Всегда возвращаем jpeg как fallback
+                
+        sys.modules['imghdr'] = SimpleImghdr()
+        import imghdr
+        from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 import logging
 import os
