@@ -228,6 +228,11 @@ def main():
     
     updater = Updater(SUPPORT_BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
+    print("🔄 Сбрасываю offset для бота поддержки...")
+    try:
+        updater.bot.get_updates(offset=-1)
+    except Exception as e:
+        print(f"⚠️ Ошибка сброса offset: {e}")
     
     dp.add_handler(CommandHandler("start", start_command))
     dp.add_handler(CommandHandler("reply", admin_reply_command))
