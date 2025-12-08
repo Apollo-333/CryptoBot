@@ -1,6 +1,8 @@
 import os
 import time
 import threading
+import subprocess
+import sys
 
 os.environ['PYTHONUNBUFFERED'] = '1'
 
@@ -20,94 +22,72 @@ def home():
 def run_flask():
     port = int(os.environ.get('PORT', 8080))
     print(f"🌐 Keep-alive сервер на порту {port}")
-    app.run(host='0.0.0.0', port=port)
+    # Используем waitress для production
+    from waitress import serve
+    serve(app, host="0.0.0.0", port=port)
 
-# Запускаем Flask
+# Запускаем Flask в отдельном процессе
 Thread(target=run_flask, daemon=True).start()
 time.sleep(2)
 
-def check_token(token_name):
-    """Проверяет что токен установлен"""
-    token = os.environ.get(token_name)
-    if not token:
-        print(f"❌ {token_name} не найден в переменных окружения!")
-        return False
-    # Проверяем что токен не пустой и имеет правильный формат
-    if len(token) < 10:
-        print(f"❌ {token_name} слишком короткий!")
-        return False
-    return True
+def run_bot(bot_name, module_name):
+    """Запуск бота в отдельном процессе"""
+    print(f"🤖 Запускаю {bot_name}...")
+    
+    # Запускаем каждый бот в отдельном процессе
+    result = subprocess.run(
+        [sys.executable, "-c", f"from {module_name} import main; main()"],
+        capture_output=True,
+        text=True
+    )
+    
+    if result.returncode != 0:
+        print(f"❌ {bot_name} завершился с ошибкой:")
+        print(result.stderr)
+    else:
+        print(f"✅ {bot_name} завершился")
 
-def run_main_bot():
-    """Запуск основного бота"""
-    print("🤖 Проверяю основной бот...")
+def main():
+    """Основная функция запуска"""
+    # Запускаем оба бота в отдельных потоках
+    threads = []
     
-    # Проверяем токен
-    if not check_token('TELEGRAM_TOKEN'):
-        print("⚠️  Основной бот не будет запущен")
-        return
+    # Основной бот
+    t1 = threading.Thread(
+        target=run_bot,
+        args=("Основной бот", "main"),
+        daemon=True
+    )
     
-    print("✅ Токен найден, запускаю основной бот...")
-    time.sleep(5)  # Даем время Flask запуститься
+    # Бот поддержки (только если есть токен)
+    if os.environ.get("SUPPORT_BOT_TOKEN"):
+        t2 = threading.Thread(
+            target=run_bot,
+            args=("Бот поддержки", "support_bot"),
+            daemon=True
+        )
+        threads.append(t2)
     
+    threads.append(t1)
+    
+    # Запускаем все потоки
+    for t in threads:
+        t.start()
+    
+    print("=" * 60)
+    print("✅ Система запущена!")
+    print(f"🤖 Основной бот: активен")
+    if os.environ.get("SUPPORT_BOT_TOKEN"):
+        print(f"🆘 Бот поддержки: активен")
+    print("🌐 Статус: https://cryptobot-sebz.onrender.com")
+    print("=" * 60)
+    
+    # Держим основной поток живым
     try:
-        from main import main as main_bot_main
-        main_bot_main()
-    except Exception as e:
-        print(f"❌ Ошибка основного бота: {e}")
-        import traceback
-        traceback.print_exc()
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Остановка...")
 
-def run_support_bot():
-    """Запуск бота поддержки"""
-    print("🆘 Проверяю бот поддержки...")
-    
-    # Проверяем токен
-    if not check_token('SUPPORT_BOT_TOKEN'):
-        print("⚠️  Бот поддержки не будет запущен")
-        return
-    
-    print("✅ Токен найден, запускаю бот поддержки...")
-    time.sleep(10)  # Ждем дольше перед запуском второго бота
-    
-    try:
-        from support_bot import main as support_bot_main
-        support_bot_main()
-    except Exception as e:
-        print(f"❌ Ошибка бота поддержки: {e}")
-        import traceback
-        traceback.print_exc()
-
-# Запускаем проверку токенов
-print("🔐 Проверка токенов...")
-main_token_ok = check_token('TELEGRAM_TOKEN')
-support_token_ok = check_token('SUPPORT_BOT_TOKEN')
-
-if not main_token_ok and not support_token_ok:
-    print("❌ Ни один токен не найден! Проверь переменные окружения на Render.")
-    print("💡 Добавь TELEGRAM_TOKEN и SUPPORT_BOT_TOKEN в настройках сервиса")
-    exit(1)
-
-# Запускаем ботов в отдельных потоках
-print("🔄 Запускаю ботов...")
-t1 = threading.Thread(target=run_main_bot, daemon=True)
-t2 = threading.Thread(target=run_support_bot, daemon=True)
-
-t1.start()
-t2.start()
-
-print("=" * 60)
-print("✅ Система запущена!")
-if main_token_ok:
-    print("🤖 Основной бот: @CryptoSignalsPro777_bot")
-if support_token_ok:
-    print("🆘 Бот поддержки: @CryptoSignalsSupportBot")
-print("🌐 Статус: https://cryptobot-sebz.onrender.com")
-print("=" * 60)
-
-# Держим основной поток живым
-try:
-    while True:
-        time.sleep(1)
-except KeyboardInterrupt:
-    print("\n🛑 Остановка...")
+if __name__ == "__main__":
+    main()
