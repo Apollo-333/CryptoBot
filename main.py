@@ -1209,6 +1209,11 @@ def main():
     
     updater = Updater(token=BOT_TOKEN, use_context=True)
     dispatcher = updater.dispatcher
+        print("🔄 Сбрасываю offset для основного бота...")
+    try:
+        updater.bot.get_updates(offset=-1)
+    except Exception as e:
+        print(f"⚠️ Ошибка сброса offset: {e}")
     
     # Все твои обработчики как есть...
     dispatcher.add_handler(CommandHandler("start", start_command))
@@ -1245,6 +1250,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
