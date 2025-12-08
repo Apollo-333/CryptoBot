@@ -2,6 +2,26 @@ import os
 import psycopg
 import logging
 from datetime import datetime, timedelta
+try:
+    import imghdr
+except ImportError:
+    # Импортируем наш фикс
+    try:
+        from imghdr_fix import ImghdrMock
+        import sys
+        sys.modules['imghdr'] = ImghdrMock()
+        import imghdr
+    except ImportError:
+        # Создаем простой фикс на месте
+        import sys
+        
+        class SimpleImghdr:
+            @staticmethod
+            def what(file, h=None):
+                return 'jpeg'  # Всегда возвращаем jpeg как fallback
+                
+        sys.modules['imghdr'] = SimpleImghdr()
+        import imghdr
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 import random
@@ -1225,5 +1245,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
