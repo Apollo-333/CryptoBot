@@ -1209,7 +1209,7 @@ def main():
     
     updater = Updater(token=BOT_TOKEN, use_context=True)
     dispatcher = updater.dispatcher
-        print("🔄 Сбрасываю offset для основного бота...")
+    print("🔄 Сбрасываю offset для основного бота...")
     try:
         updater.bot.get_updates(offset=-1)
     except Exception as e:
@@ -1250,6 +1250,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
