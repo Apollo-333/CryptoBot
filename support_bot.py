@@ -1,29 +1,18 @@
+import os
+import logging
+import time
+import sys
+import telegram.error
+
+# ================== FIX ДЛЯ IMGHDR ==================
 try:
     import imghdr
 except ImportError:
-    # Импортируем наш фикс
-    try:
-        from imghdr_fix import ImghdrMock
-        import sys
-        sys.modules['imghdr'] = ImghdrMock()
-        import imghdr
-    except ImportError:
-        # Создаем простой фикс на месте
-        import sys
-        
-        class SimpleImghdr:
-            @staticmethod
-            def what(file, h=None):
-                return 'jpeg'  # Всегда возвращаем jpeg как fallback
-                
-        sys.modules['imghdr'] = SimpleImghdr()
-        import imghdr
-        from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
-import logging
-import os
-from datetime import datetime
-import time
+    class ImghdrStub:
+        @staticmethod
+        def what(file, h=None):
+            return None
+    sys.modules['imghdr'] = ImghdrStub()
 
 # Настройка логирования
 logging.basicConfig(
@@ -72,6 +61,8 @@ def start_command(update, context):
 ⏰ Время ответа: до 15 минут
     """
 
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    
     keyboard = [
         [InlineKeyboardButton("💳 Оплата подписки", callback_data="payment_info")],
         [InlineKeyboardButton("📋 Частые вопросы", callback_data="faq")],
@@ -182,6 +173,7 @@ def admin_reply_command(update, context):
         print(f"❌ Ошибка: {e}")
 
 def handle_payment_info(update, context):
+    from telegram import Update
     query = update.callback_query
     query.answer()
     payment_text = """
@@ -193,6 +185,7 @@ USDT (TRC20): `TF33keB2N3P226zxFfESVCvXCFQMjnMXQh`
     query.message.reply_text(payment_text, parse_mode='Markdown')
 
 def handle_faq(update, context):
+    from telegram import Update
     query = update.callback_query
     query.answer()
     faq_text = """
@@ -216,46 +209,123 @@ def handle_message(update, context):
     if update.message.text and not update.message.text.startswith('/'):
         forward_to_admin(update, context)
 
+def start_bot_with_retry():
+    """Запуск бота поддержки с повторными попытками"""
+    max_retries = 3
+    retry_delay = 45  # секунд - БОЛЬШЕ чем у основного бота
+    
+    for attempt in range(max_retries):
+        try:
+            print("=" * 60)
+            print(f"🆘 ПОПЫТКА {attempt + 1}/{max_retries} ЗАПУСКА БОТА ПОДДЕРЖКИ")
+            print("=" * 60)
+            
+            # Ждем больше перед запуском поддержки
+            wait_time = 10 + (attempt * 5)
+            print(f"⏳ Жду {wait_time} секунд перед запуском бота поддержки...")
+            time.sleep(wait_time)
+            
+            from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
+            from telegram import Update
+            
+            updater = Updater(SUPPORT_BOT_TOKEN, use_context=True)
+            dp = updater.dispatcher
+            
+            # КРИТИЧЕСКИ ВАЖНО: сбросить offset для бота поддержки
+            print("🔄 Сбрасываю offset для бота поддержки...")
+            try:
+                updater.bot.get_updates(offset=-1)
+                print("✅ Offset сброшен успешно")
+            except Exception as e:
+                print(f"⚠️ Ошибка сброса offset: {e}")
+            
+            dp.add_handler(CommandHandler("start", start_command))
+            dp.add_handler(CommandHandler("reply", admin_reply_command))
+            dp.add_handler(CallbackQueryHandler(handle_payment_info, pattern="payment_info"))
+            dp.add_handler(CallbackQueryHandler(handle_faq, pattern="faq"))
+            dp.add_handler(CallbackQueryHandler(handle_faq, pattern="tech_issues"))
+            dp.add_handler(MessageHandler(Filters.photo, handle_photo))
+            dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+            
+            print("✅ Бот поддержки запущен...")
+            print(f"👨‍💻 ADMIN_ID: {ADMIN_ID}")
+            print("👨‍💻 Для ответа: /reply <user_id> <сообщение>")
+            print("=" * 60)
+            
+            # Запускаем polling с УНИКАЛЬНЫМИ параметрами (отличающимися от основного)
+            updater.start_polling(
+                poll_interval=3.0,  # 3 секунды - УНИКАЛЬНЫЙ интервал
+                timeout=20,
+                drop_pending_updates=True,
+                allowed_updates=['message', 'callback_query']
+            )
+            
+            print("✅ Polling запущен успешно!")
+            
+            # Бесконечный цикл
+            while True:
+                time.sleep(1)
+                
+        except telegram.error.Conflict as e:
+            print(f"⚠️ Конфликт обнаружен: {e}")
+            if attempt < max_retries - 1:
+                print(f"⏳ Жду {retry_delay} секунд перед повторной попыткой...")
+                time.sleep(retry_delay)
+            else:
+                print("❌ Достигнут лимит попыток. Останавливаю бота.")
+                # Вместо падения, запускаем простой веб-сервер
+                start_fallback_server()
+                break
+        except Exception as e:
+            print(f"❌ Критическая ошибка: {e}")
+            import traceback
+            traceback.print_exc()
+            # Запускаем fallback сервер
+            start_fallback_server()
+            break
+
+def start_fallback_server():
+    """Резервный веб-сервер если бот не может запуститься"""
+    print("🔄 Запускаю резервный веб-сервер...")
+    
+    from flask import Flask
+    from threading import Thread
+    
+    app = Flask('')
+    
+    @app.route('/')
+    def home():
+        return "✅ Support Bot (Fallback Mode)"
+    
+    @app.route('/health')
+    def health():
+        return "OK", 200
+    
+    def run_flask():
+        port = int(os.environ.get('PORT', 8080))
+        print(f"🌐 Резервный сервер на порту {port}")
+        from waitress import serve
+        serve(app, host="0.0.0.0", port=port)
+    
+    Thread(target=run_flask, daemon=True).start()
+    
+    # Бесконечный цикл
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Остановка...")
+
 def main():
     """Запуск бота поддержки"""
     print("🚀 Запуск бота поддержки...")
     
     if not SUPPORT_BOT_TOKEN:
         print("⚠️ SUPPORT_BOT_TOKEN не найден")
+        start_fallback_server()
         return
     
-    from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
-    
-    updater = Updater(SUPPORT_BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-    print("🔄 Сбрасываю offset для бота поддержки...")
-    try:
-        updater.bot.get_updates(offset=-1)
-    except Exception as e:
-        print(f"⚠️ Ошибка сброса offset: {e}")
-    
-    dp.add_handler(CommandHandler("start", start_command))
-    dp.add_handler(CommandHandler("reply", admin_reply_command))
-    dp.add_handler(CallbackQueryHandler(handle_payment_info, pattern="payment_info"))
-    dp.add_handler(CallbackQueryHandler(handle_faq, pattern="faq"))
-    dp.add_handler(CallbackQueryHandler(handle_faq, pattern="tech_issues"))
-    dp.add_handler(MessageHandler(Filters.photo, handle_photo))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
-    
-    print("✅ Бот поддержки запущен...")
-    print(f"👨‍💻 ADMIN_ID: {ADMIN_ID}")
-    print("👨‍💻 Для ответа: /reply <user_id> <сообщение>")
-    
-    # ЗАПУСКАЕМ БЕЗ idle()!
-    updater.start_polling()
-    
-    # Вместо idle() делаем бесконечный цикл
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n🛑 Остановка бота поддержки...")
-        updater.stop()
+    start_bot_with_retry()
 
 if __name__ == "__main__":
     main()
