@@ -1187,8 +1187,6 @@ def main():
     print("🚀 ЗАПУСК CRYPTO SIGNALS PRO BOT")
     print("=" * 60)
     
-    from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
-    
     updater = Updater(token=BOT_TOKEN, use_context=True)
     dispatcher = updater.dispatcher
     
@@ -1227,4 +1225,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
