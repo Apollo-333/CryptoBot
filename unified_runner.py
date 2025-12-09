@@ -1,6 +1,7 @@
 """
 🚀 УНИФИЦИРОВАННЫЙ ЗАПУСК ДЛЯ RENDER
 Запускает: Основной бот + Бот поддержки + Веб-сервер
+БЕЗ КОНФЛИКТОВ!
 """
 import os
 import sys
@@ -10,7 +11,10 @@ import threading
 from datetime import datetime
 
 # ================== НАСТРОЙКА ==================
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -25,68 +29,74 @@ print(f"Бот поддержки: {'✅' if SUPPORT_BOT_TOKEN else '❌'}")
 print(f"Админ ID: {ADMIN_ID or 'Не установлен'}")
 print("=" * 60)
 
+# ================== ГЛОБАЛЬНЫЕ ФЛАГИ ==================
+bot_instances = {}
+bot_lock = threading.Lock()
+
 # ================== ВЕБ-СЕРВЕР ==================
 def run_web_server():
     """Запуск веб-сервера для Render (ОБЯЗАТЕЛЬНО)"""
     try:
         from flask import Flask
+        import json
         from waitress import serve
         
         app = Flask(__name__)
         
         @app.route('/')
         def home():
+            status = {
+                "main_bot": "active" if TELEGRAM_TOKEN else "missing_token",
+                "support_bot": "active" if SUPPORT_BOT_TOKEN else "missing_token",
+                "web_server": "active",
+                "timestamp": datetime.now().isoformat(),
+                "url": "https://crypto-bot-612m.onrender.com"
+            }
+            
             return f"""
             <html>
                 <head>
                     <title>Crypto Signals System</title>
                     <meta http-equiv="refresh" content="30">
                     <style>
-                        body {{ font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }}
-                        .container {{ max-width: 800px; margin: 0 auto; }}
+                        body {{ font-family: Arial, sans-serif; margin: 40px; }}
                         .status {{ padding: 10px; margin: 10px 0; border-radius: 5px; }}
-                        .ok {{ background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }}
-                        .error {{ background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }}
-                        .warning {{ background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }}
+                        .ok {{ background: #d4edda; color: #155724; }}
+                        .error {{ background: #f8d7da; color: #721c24; }}
+                        .warning {{ background: #fff3cd; color: #856404; }}
                     </style>
                 </head>
                 <body>
-                    <div class="container">
-                        <h1>🤖 Crypto Signals System</h1>
-                        <p>Система управления торговыми сигналами</p>
-                        
-                        <div class="status {'ok' if TELEGRAM_TOKEN else 'error'}">
-                            <strong>Основной бот:</strong> {'✅ Активен' if TELEGRAM_TOKEN else '❌ Не настроен'}
-                        </div>
-                        
-                        <div class="status {'ok' if SUPPORT_BOT_TOKEN else 'warning'}">
-                            <strong>Бот поддержки:</strong> {'✅ Активен' if SUPPORT_BOT_TOKEN else '⚠️ Не настроен'}
-                        </div>
-                        
-                        <div class="status ok">
-                            <strong>Веб-сервер:</strong> ✅ Активен
-                        </div>
-                        
-                        <p><strong>Время сервера:</strong> {datetime.now().strftime('%H:%M:%S %d.%m.%Y')}</p>
-                        <p><strong>Telegram:</strong> @CryptoSignalsProBot</p>
-                        <p><strong>Поддержка:</strong> @CryptoSignalsSupportBot</p>
+                    <h1>🤖 Crypto Signals System</h1>
+                    <div class="status {'ok' if TELEGRAM_TOKEN else 'error'}">
+                        <strong>Основной бот:</strong> {'✅ Активен' if TELEGRAM_TOKEN else '❌ Нет токена'}
                     </div>
+                    <div class="status {'ok' if SUPPORT_BOT_TOKEN else 'warning'}">
+                        <strong>Бот поддержки:</strong> {'✅ Активен' if SUPPORT_BOT_TOKEN else '⚠️ Не настроен'}
+                    </div>
+                    <div class="status ok">
+                        <strong>Веб-сервер:</strong> ✅ Активен
+                    </div>
+                    <p><strong>Время:</strong> {datetime.now().strftime('%H:%M:%S %d.%m.%Y')}</p>
+                    <p><strong>Telegram:</strong> @CryptoSignalsProBot</p>
                 </body>
             </html>
             """
         
         @app.route('/health')
         def health():
-            return json.dumps({
-                "status": "OK",
-                "main_bot": bool(TELEGRAM_TOKEN),
-                "support_bot": bool(SUPPORT_BOT_TOKEN),
-                "timestamp": datetime.now().isoformat()
-            }), 200, {'Content-Type': 'application/json'}
+            return json.dumps({"status": "OK", "time": datetime.now().isoformat()}), 200
         
-        @app.route('/ping')
-        def ping():
-            return "pong"
+        @app.route('/api/status')
+        def api_status():
+            return json.dumps({
+                "status": "running",
+                "services": {
+                    "web_server": "active",
+                    "main_bot": "active" if TELEGRAM_TOKEN else "inactive",
+                    "support_bot": "active" if SUPPORT_BOT_TOKEN else "inactive"
+                }
+            }), 200
         
         port = int(os.environ.get('PORT', 8080))
         logger.info(f"🌐 Запуск веб-сервера на порту {port}")
@@ -94,170 +104,176 @@ def run_web_server():
         
     except Exception as e:
         logger.error(f"❌ Ошибка веб-сервера: {e}")
+        # Падаем если веб-сервер не запустился
+        raise
 
 # ================== ОСНОВНОЙ БОТ ==================
 def run_main_bot():
-    """Запуск основного бота с сигналами"""
-    logger.info("🤖 Инициализация основного бота...")
-    time.sleep(5)  # Даем время веб-серверу запуститься
+    """Запуск основного бота с задержкой и защитой от конфликтов"""
+    logger.info("⏳ Задержка 10 секунд перед запуском основного бота...")
+    time.sleep(10)  # Ждем дольше
+    
+    if not TELEGRAM_TOKEN:
+        logger.error("❌ TELEGRAM_TOKEN не найден!")
+        return
     
     try:
-        # Импортируем основные модули
-        import telegram
-        from telegram.ext import Updater
+        from telegram.ext import Updater, CommandHandler
         
-        if not TELEGRAM_TOKEN:
-            logger.error("❌ TELEGRAM_TOKEN не найден!")
-            return
+        logger.info("🤖 Инициализация основного бота...")
         
+        # Создаем экземпляр
         updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
         
-        # Сброс offset чтобы избежать конфликтов
+        # КРИТИЧЕСКИ ВАЖНО: сбросить offset
         try:
+            logger.info("🔄 Сбрасываю offset для основного бота...")
             updater.bot.get_updates(offset=-1)
-            logger.info("✅ Offset сброшен")
-        except:
-            pass
+            time.sleep(1)
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось сбросить offset: {e}")
         
-        # Простые команды для теста
+        # Регистрируем команды
         def start(update, context):
-            update.message.reply_text("🚀 Crypto Signals Bot активен! Используйте /signals для получения сигналов.")
+            update.message.reply_text("🚀 Crypto Signals Bot активен! Используйте /signals")
         
         def signals(update, context):
-            update.message.reply_text("📈 Сигналы генерируются... (функционал в разработке)")
+            update.message.reply_text("📈 Сигналы: функция в разработке")
         
         dispatcher = updater.dispatcher
-        dispatcher.add_handler(telegram.ext.CommandHandler("start", start))
-        dispatcher.add_handler(telegram.ext.CommandHandler("signals", signals))
+        dispatcher.add_handler(CommandHandler("start", start))
+        dispatcher.add_handler(CommandHandler("signals", signals))
         
         # Запускаем с уникальными параметрами
+        logger.info("✅ Запускаю polling основного бота...")
         updater.start_polling(
-            poll_interval=2.0,
-            timeout=20,
+            poll_interval=2.0,  # Уникальный интервал
+            timeout=15,
             drop_pending_updates=True,
             allowed_updates=['message', 'callback_query']
         )
         
-        logger.info("✅ Основной бот запущен и слушает команды")
+        # Сохраняем экземпляр
+        with bot_lock:
+            bot_instances['main'] = updater
+        
+        logger.info("✅ Основной бот успешно запущен!")
         
         # Держим активным
         while True:
-            time.sleep(10)
+            time.sleep(30)
             logger.debug("Основной бот: активен")
             
-    except telegram.error.Conflict as e:
-        logger.error(f"⚠️ Конфликт основного бота: {e}")
-        logger.info("🔄 Перезапуск через 30 секунд...")
-        time.sleep(30)
-        run_main_bot()  # Рекурсивный перезапуск
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка основного бота: {e}")
-        logger.exception(e)
+        logger.error(f"❌ Ошибка основного бота: {e}")
+        # Не перезапускаем автоматически - пусть упадет
 
 # ================== БОТ ПОДДЕРЖКИ ==================
 def run_support_bot():
-    """Запуск бота технической поддержки"""
-    logger.info("🆘 Инициализация бота поддержки...")
-    time.sleep(10)  # Ждем дольше чем основной бот
+    """Запуск бота поддержки с большой задержкой"""
+    logger.info("⏳ Задержка 20 секунд перед запуском бота поддержки...")
+    time.sleep(20)  # Ждем еще дольше
+    
+    if not SUPPORT_BOT_TOKEN:
+        logger.warning("⚠️ SUPPORT_BOT_TOKEN не найден, пропускаем")
+        return
     
     try:
-        import telegram
         from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
         
-        if not SUPPORT_BOT_TOKEN:
-            logger.warning("⚠️ SUPPORT_BOT_TOKEN не найден, пропускаем бота поддержки")
-            return
+        logger.info("🆘 Инициализация бота поддержки...")
         
+        # Создаем экземпляр
         updater = Updater(token=SUPPORT_BOT_TOKEN, use_context=True)
         
         # Сброс offset
         try:
+            logger.info("🔄 Сбрасываю offset для бота поддержки...")
             updater.bot.get_updates(offset=-1)
-            logger.info("✅ Offset сброшен (поддержка)")
-        except:
-            pass
+            time.sleep(1)
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось сбросить offset: {e}")
         
+        # Команды
         def support_start(update, context):
-            user = update.effective_user
-            update.message.reply_text(
-                f"🤖 Здравствуйте, {user.first_name}!\n"
-                "Я бот поддержки Crypto Signals.\n"
-                "Отправьте ваш вопрос, и я передам его администратору."
-            )
+            update.message.reply_text("🤖 Бот поддержки активен. Отправьте ваш вопрос.")
         
-        def forward_message(update, context):
-            user = update.effective_user
-            logger.info(f"📨 Сообщение от {user.id} ({user.first_name}): {update.message.text}")
-            update.message.reply_text("✅ Ваше сообщение получено! Администратор ответит в течение 24 часов.")
+        def echo(update, context):
+            update.message.reply_text(f"✅ Получено: {update.message.text}")
         
         dispatcher = updater.dispatcher
         dispatcher.add_handler(CommandHandler("start", support_start))
-        dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_message))
+        dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, echo))
         
-        # Другой polling интервал
+        # ДРУГОЙ интервал polling
+        logger.info("✅ Запускаю polling бота поддержки...")
         updater.start_polling(
-            poll_interval=3.0,
-            timeout=20,
+            poll_interval=3.0,  # Другой интервал!
+            timeout=15,
             drop_pending_updates=True,
             allowed_updates=['message']
         )
         
-        logger.info("✅ Бот поддержки запущен")
+        # Сохраняем экземпляр
+        with bot_lock:
+            bot_instances['support'] = updater
+        
+        logger.info("✅ Бот поддержки успешно запущен!")
         
         while True:
-            time.sleep(15)
+            time.sleep(30)
             logger.debug("Бот поддержки: активен")
             
-    except telegram.error.Conflict as e:
-        logger.error(f"⚠️ Конфликт бота поддержки: {e}")
-        logger.info("🔄 Перезапуск через 45 секунд...")
-        time.sleep(45)
-        run_support_bot()
     except Exception as e:
         logger.error(f"❌ Ошибка бота поддержки: {e}")
+        # Проверяем токен
+        if "Invalid token" in str(e):
+            logger.error("❌ НЕВЕРНЫЙ ТОКЕН бота поддержки! Проверьте SUPPORT_BOT_TOKEN")
 
 # ================== ГЛАВНАЯ ФУНКЦИЯ ==================
 def main():
-    """Основная функция запуска"""
-    logger.info("🚀 Запуск всех компонентов системы...")
+    """Основная функция запуска с защитой от конфликтов"""
+    logger.info("🚀 Начинаю запуск системы...")
     
-    # Проверка обязательных переменных
+    # ВАЖНО: Проверяем переменные
     if not TELEGRAM_TOKEN:
         logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: TELEGRAM_TOKEN не установлен!")
-        logger.info("💡 Установите в Render: TELEGRAM_TOKEN=ваш_токен")
+        logger.info("💡 Установите в Render Dashboard:")
+        logger.info("   TELEGRAM_TOKEN = ваш_токен_от_BotFather")
         return
     
-    # Запускаем ВСЕ в отдельных потоках
-    threads = []
+    # Запускаем компоненты ПО ОЧЕРЕДИ с задержками
     
-    # 1. Веб-сервер (ОБЯЗАТЕЛЬНО для Render)
+    # 1. Веб-сервер ПЕРВЫМ
+    logger.info("1. Запуск веб-сервера...")
     web_thread = threading.Thread(target=run_web_server, daemon=True, name="WebServer")
     web_thread.start()
-    threads.append(web_thread)
-    time.sleep(2)  # Даем веб-серверу запуститься первым
+    time.sleep(3)  # Ждем запуска
     
     # 2. Основной бот
+    logger.info("2. Подготовка основного бота...")
     main_bot_thread = threading.Thread(target=run_main_bot, daemon=True, name="MainBot")
     main_bot_thread.start()
-    threads.append(main_bot_thread)
-    time.sleep(3)
     
     # 3. Бот поддержки (если есть токен)
     if SUPPORT_BOT_TOKEN:
+        logger.info("3. Подготовка бота поддержки...")
         support_bot_thread = threading.Thread(target=run_support_bot, daemon=True, name="SupportBot")
         support_bot_thread.start()
-        threads.append(support_bot_thread)
+    else:
+        logger.info("3. Бот поддержки пропущен (нет токена)")
     
-    logger.info("✅ Все компоненты запущены успешно!")
-    logger.info(f"📊 Активных потоков: {threading.active_count()}")
+    logger.info("✅ Все компоненты инициализированы!")
+    logger.info(f"🌐 Веб-интерфейс: https://crypto-bot-612m.onrender.com")
+    logger.info(f"🤖 Основной бот: {'✅' if TELEGRAM_TOKEN else '❌'}")
+    logger.info(f"🆘 Бот поддержки: {'✅' if SUPPORT_BOT_TOKEN else '❌'}")
     
-    # Бесконечный цикл главного потока
+    # Мониторинг
     try:
         while True:
             time.sleep(60)
-            # Периодический лог статуса
             logger.info(f"⏰ Система активна: {datetime.now().strftime('%H:%M:%S')}")
-            logger.info(f"📊 Потоков: {threading.active_count()}")
+            logger.info(f"📊 Активных потоков: {threading.active_count()}")
             
     except KeyboardInterrupt:
         logger.info("\n🛑 Остановка системы...")
@@ -266,7 +282,7 @@ def main():
 
 # ================== ЗАПУСК ==================
 if __name__ == "__main__":
-    # Добавляем обработку JSON
-    import json
+    # КРИТИЧЕСКИ ВАЖНО: Убедитесь что старые боты не запускаются
+    # Переименуйте main.py и support_bot.py чтобы они не запускались автоматически!
     
     main()
