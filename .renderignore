@@ -1,8 +1,10 @@
-# .renderignore
-main_old.py
-support_bot_old.py
+# .renderignore - ЗАПРЕТИТЬ запуск всех старых файлов
 main.py
 support_bot.py
+main_old.py
+support_bot_old.py
+unified_runner.py
 *.bak
+test_*.py
 __pycache__/
 *.pyc
