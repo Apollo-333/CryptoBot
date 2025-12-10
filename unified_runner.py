@@ -229,26 +229,17 @@ def main():
 
 # ================== ЗАПУСК ==================
 if __name__ == "__main__":
-    # КРИТИЧЕСКИ ВАЖНО: Убедитесь что другие файлы ботов УДАЛЕНЫ!
-    # Проверяем, не запущен ли уже другой бот
-    import psutil
-    current_pid = os.getpid()
+    """Точка входа - без лишних проверок"""
+    print("=" * 60)
+    print("🚀 ЗАПУСК CRYPTO SIGNALS BOT")
+    print("=" * 60)
     
-    # Проверяем процессы Python
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-        try:
-            cmdline = proc.info['cmdline']
-            if cmdline and 'python' in proc.info['name'].lower():
-                # Ищем другие процессы с нашими скриптами
-                if any('main.py' in str(arg) for arg in cmdline):
-                    if proc.info['pid'] != current_pid:
-                        logger.warning(f"⚠️ Обнаружен другой процесс main.py (PID: {proc.info['pid']})")
-                        logger.warning("   Удалите старые файлы ботов!")
-                if any('support_bot.py' in str(arg) for arg in cmdline):
-                    if proc.info['pid'] != current_pid:
-                        logger.warning(f"⚠️ Обнаружен другой процесс support_bot.py (PID: {proc.info['pid']})")
-                        logger.warning("   Удалите старые файлы ботов!")
-        except:
-            pass
-    
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n🛑 Остановка по команде пользователя")
+    except Exception as e:
+        print(f"❌ Критическая ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
