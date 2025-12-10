@@ -1,12 +1,12 @@
 """
-🚀 ЕДИНСТВЕННЫЙ БОТ ДЛЯ RENDER
-Запускает: ТОЛЬКО ОСНОВНОЙ БОТ + Веб-сервер
+🚀 ОКОНЧАТЕЛЬНАЯ ВЕРСИЯ БОТА ДЛЯ RENDER
+С админ-командами и премиум системой
 """
 import os
 import sys
 import time
-import logging
 import threading
+import logging
 from datetime import datetime
 
 # ================== НАСТРОЙКА ==================
@@ -17,229 +17,383 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-SUPPORT_BOT_TOKEN = os.getenv("SUPPORT_BOT_TOKEN", "")  # Опционально
+ADMIN_ID = os.getenv("ADMIN_ID", "0")
 
 print("=" * 60)
-print("🤖 CRYPTO SIGNALS BOT")
+print("🤖 CRYPTO SIGNALS PRO BOT")
+print(f"Токен: {'✅' if TELEGRAM_TOKEN else '❌'}")
+print(f"Админ ID: {ADMIN_ID}")
 print("=" * 60)
-print(f"Основной бот: {'✅' if TELEGRAM_TOKEN else '❌'}")
-if SUPPORT_BOT_TOKEN:
-    print(f"Бот поддержки: ✅ (будет запущен позже)")
-else:
-    print(f"Бот поддержки: ⚠️ Нет токена")
-print("=" * 60)
+
+# ================== ИМИТАЦИЯ БАЗЫ ДАННЫХ ==================
+# Простая база в памяти для демо
+users_db = {}
+
+def is_admin(user_id):
+    """Проверка, является ли пользователь админом"""
+    return str(user_id) == ADMIN_ID
+
+def get_user(user_id):
+    """Получить данные пользователя"""
+    if user_id not in users_db:
+        users_db[user_id] = {
+            'is_premium': False,
+            'premium_expiry': None,
+            'signals_today': 0
+        }
+    return users_db[user_id]
+
+def activate_premium(user_id, days=30):
+    """Активировать премиум для пользователя"""
+    users_db[user_id] = {
+        'is_premium': True,
+        'premium_expiry': time.time() + (days * 86400),
+        'signals_today': 0
+    }
+    return True
 
 # ================== ВЕБ-СЕРВЕР ==================
 def run_web_server():
-    """Запуск веб-сервера для Render"""
-    try:
-        from flask import Flask
-        from waitress import serve
-        
-        app = Flask(__name__)
-        
-        @app.route('/')
-        def home():
-            return f"""
-            <html>
-                <head>
-                    <title>Crypto Signals Bot</title>
-                    <meta http-equiv="refresh" content="30">
-                    <style>
-                        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-                        .status {{ padding: 15px; margin: 10px 0; border-radius: 8px; }}
-                        .ok {{ background: #d4edda; color: #155724; border: 2px solid #c3e6cb; }}
-                        .warning {{ background: #fff3cd; color: #856404; border: 2px solid #ffeaa7; }}
-                        .container {{ max-width: 800px; margin: 0 auto; }}
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <h1>🤖 Crypto Signals Bot</h1>
-                        <p>Торговые сигналы в реальном времени</p>
-                        
-                        <div class="status ok">
-                            <h3>✅ Система активна</h3>
-                            <p><strong>Время:</strong> {datetime.now().strftime('%H:%M:%S %d.%m.%Y')}</p>
-                            <p><strong>Статус:</strong> Основной бот работает</p>
-                            <p><strong>Telegram:</strong> @CryptoSignalsProBot</p>
-                        </div>
-                        
-                        <div class="status {'ok' if SUPPORT_BOT_TOKEN else 'warning'}">
-                            <h3>{'✅' if SUPPORT_BOT_TOKEN else '⚠️'} Бот поддержки</h3>
-                            <p>{'Активен' if SUPPORT_BOT_TOKEN else 'Не настроен'}</p>
-                            <p><strong>ID для поддержки:</strong> Отправьте /start в боте</p>
-                        </div>
-                        
-                        <p><a href="/health">Проверка здоровья системы</a></p>
-                    </div>
-                </body>
-            </html>
-            """
-        
-        @app.route('/health')
-        def health():
-            return "OK", 200
-        
-        @app.route('/ping')
-        def ping():
-            return "pong", 200
-        
-        port = int(os.environ.get('PORT', 10000))
-        logger.info(f"🌐 Веб-сервер запущен на порту {port}")
-        
-        # Запускаем в основном потоке (блокирующий)
-        serve(app, host="0.0.0.0", port=port)
-        
-    except Exception as e:
-        logger.error(f"❌ Веб-сервер: {e}")
-        raise
+    """Веб-сервер для Render"""
+    from flask import Flask
+    from waitress import serve
+    
+    app = Flask(__name__)
+    
+    @app.route('/')
+    def home():
+        return f"""
+        <html>
+            <head>
+                <title>Crypto Signals Pro</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                    .status {{ padding: 20px; margin: 20px 0; border-radius: 10px; }}
+                    .ok {{ background: #d4edda; color: #155724; }}
+                    .info {{ background: #d1ecf1; color: #0c5460; }}
+                </style>
+            </head>
+            <body>
+                <h1>🤖 Crypto Signals Pro</h1>
+                <div class="status ok">
+                    <h3>✅ Система активна</h3>
+                    <p><strong>Время сервера:</strong> {datetime.now().strftime('%H:%M:%S %d.%m.%Y')}</p>
+                    <p><strong>Пользователей:</strong> {len(users_db)}</p>
+                    <p><strong>Премиум пользователей:</strong> {sum(1 for u in users_db.values() if u['is_premium'])}</p>
+                </div>
+                <div class="status info">
+                    <h3>📊 Статистика</h3>
+                    <p>Бот работает стабильно</p>
+                    <p>Telegram: @CryptoSignalsProBot</p>
+                    <p>Админ ID: {ADMIN_ID}</p>
+                </div>
+            </body>
+        </html>
+        """
+    
+    @app.route('/health')
+    def health():
+        return "OK", 200
+    
+    port = int(os.environ.get('PORT', 10000))
+    logger.info(f"🌐 Веб-сервер на порту {port}")
+    serve(app, host="0.0.0.0", port=port)
 
 # ================== ОСНОВНОЙ БОТ ==================
 def run_main_bot():
-    """Запуск ОСНОВНОГО бота торговых сигналов"""
-    time.sleep(5)  # Ждем запуск веб-сервера
+    """Запуск основного бота со всеми функциями"""
+    time.sleep(5)
     
     if not TELEGRAM_TOKEN:
         logger.error("❌ Нет TELEGRAM_TOKEN!")
         return
     
     try:
-        from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+        from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
         
         logger.info("🚀 Запуск основного бота...")
         
-        # Создаем бота
         updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+        dispatcher = updater.dispatcher
         
-        # КРИТИЧЕСКИ ВАЖНО: сбрасываем ВСЕ предыдущие обновления
-        try:
-            logger.info("🔄 Сброс offset...")
-            updater.bot.get_updates(offset=-1)
-            time.sleep(2)
-        except Exception as e:
-            logger.warning(f"Ошибка сброса offset: {e}")
-        
-        # Команды
-        def start_command(update, context):
+        # ================== КОМАНДЫ ==================
+        def start(update, context):
             user = update.effective_user
+            user_id = user.id
+            
+            # Добавляем пользователя в базу
+            get_user(user_id)
+            
+            welcome_text = f"""
+🚀 **Добро пожаловать, {user.first_name}!** 🚀
+
+Ваш ID: `{user_id}`
+Статус: {'💎 ПРЕМИУМ' if users_db[user_id]['is_premium'] else '🎯 БЕСПЛАТНЫЙ'}
+
+📊 **Доступные команды:**
+/signals - Получить торговые сигналы
+/subscription - Информация о подписке
+/mystatus - Мой статус
+
+👑 **Админ-команды** (если вы админ):
+/activate_premium <user_id> - Активировать премиум
+/list_users - Список пользователей
+            """
+            
+            keyboard = [
+                [InlineKeyboardButton("🎯 Сигналы", callback_data="signals")],
+                [InlineKeyboardButton("💎 Подписка", callback_data="subscription")],
+                [InlineKeyboardButton("📊 Мой статус", callback_data="mystatus")]
+            ]
+            
+            if is_admin(user_id):
+                keyboard.append([InlineKeyboardButton("👑 Админ-панель", callback_data="admin")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             update.message.reply_text(
-                f"🚀 Привет, {user.first_name}!\n\n"
-                "Я Crypto Signals Bot - ваш помощник в торговле криптовалютой.\n\n"
-                "📊 Доступные команды:\n"
-                "/signals - Получить торговые сигналы\n"
-                "/subscription - Информация о подписке\n"
-                "/support - Техническая поддержка"
+                welcome_text,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
             )
         
         def signals_command(update, context):
-            update.message.reply_text(
-                "📈 **Генерация сигналов...**\n\n"
-                "Анализирую рынок...\n"
-                "Пожалуйста, подождите 10-15 секунд.",
-                parse_mode='Markdown'
-            )
-        
-        def support_command(update, context):
             user_id = update.effective_user.id
-            update.message.reply_text(
-                f"🆘 **Техническая поддержка**\n\n"
-                f"Ваш ID: `{user_id}`\n"
-                "Для связи с поддержкой:\n"
-                "1. Напишите @CryptoSignalsSupportBot\n"
-                "2. Укажите ваш ID выше\n"
-                "3. Опишите проблему\n\n"
-                "⏰ Время ответа: до 24 часов",
-                parse_mode='Markdown'
-            )
+            user_data = get_user(user_id)
+            
+            if user_data['is_premium']:
+                signal_text = """
+💎 **ПРЕМИУМ СИГНАЛ** 💎
+
+🏷 Пара: BTC/USDT
+⚡ Действие: BUY
+💰 Цена: $42,150
+🎯 Цель: $43,500
+🛑 Стоп-лосс: $41,200
+📈 Плечо: 3x
+✅ Уверенность: 85%
+
+⏰ Время: сейчас
+💡 Анализ: Сильный бычий тренд
+                """
+            else:
+                user_data['signals_today'] += 1
+                signal_text = f"""
+🎯 **БЕСПЛАТНЫЙ СИГНАЛ** 🎯
+
+🏷 Пара: BTC/USDT
+💰 Цена: Анализируем рынок...
+📊 Тренд: Смешанный
+
+💡 **Вы использовали {user_data['signals_today']}/1 бесплатных сигналов сегодня**
+
+💎 **Премиум включает:**
+• Неограниченные сигналы
+• Точные точки входа/выхода
+• Рекомендации по плечу
+                """
+            
+            update.message.reply_text(signal_text, parse_mode=ParseMode.MARKDOWN)
         
-        # Регистрация обработчиков
-        dispatcher = updater.dispatcher
-        dispatcher.add_handler(CommandHandler("start", start_command))
+        def subscription_command(update, context):
+            user_id = update.effective_user.id
+            user_data = get_user(user_id)
+            
+            if user_data['is_premium']:
+                expiry = datetime.fromtimestamp(user_data['premium_expiry']).strftime('%d.%m.%Y') if user_data['premium_expiry'] else "Бессрочно"
+                text = f"""
+💎 **ВАША ПРЕМИУМ ПОДПИСКА АКТИВНА**
+
+✅ Статус: Активен
+📅 Истекает: {expiry}
+
+📊 Премиум возможности:
+• Неограниченные сигналы
+• Приоритетная поддержка
+• Все функции разблокированы
+                """
+            else:
+                text = f"""
+💎 **ПРЕМИУМ ПОДПИСКА**
+
+💰 1 месяц: 9 USDT
+📅 3 месяца: 25 USDT (экономия 15%)
+
+💳 **Оплата:**
+USDT (TRC20): `TF33keB2N3P226zxFfESVCvXCFQMjnMXQh`
+
+📋 **После оплаты:**
+1. Отправьте скриншот
+2. Ваш ID: `{user_id}`
+3. Ожидайте активации (до 15 минут)
+
+⚡ **Что получите:**
+• Неограниченные сигналы
+• Pump/Dump мониторинг
+• Точные точки входа/выхода
+• Приоритетную поддержку
+                """
+            
+            update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        
+        # ================== АДМИН-КОМАНДЫ ==================
+        def activate_premium_cmd(update, context):
+            """Активация премиума (админ)"""
+            user_id = update.effective_user.id
+            
+            if not is_admin(user_id):
+                update.message.reply_text("❌ Доступ запрещен")
+                return
+            
+            if not context.args:
+                update.message.reply_text("❌ Использование: /activate_premium <user_id> [дней=30]")
+                return
+            
+            try:
+                target_user_id = int(context.args[0])
+                days = int(context.args[1]) if len(context.args) > 1 else 30
+                
+                activate_premium(target_user_id, days)
+                
+                update.message.reply_text(
+                    f"✅ Премиум активирован для пользователя {target_user_id} на {days} дней\n\n"
+                    f"Теперь ему доступны все премиум функции!"
+                )
+                
+                # Отправляем уведомление пользователю
+                try:
+                    context.bot.send_message(
+                        chat_id=target_user_id,
+                        text=f"🎉 **ВАША ПРЕМИУМ ПОДПИСКА АКТИВИРОВАНА!**\n\n"
+                             f"Спасибо за покупку! Теперь вам доступны все премиум функции на {days} дней.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except:
+                    pass
+                
+            except ValueError:
+                update.message.reply_text("❌ Неверный формат")
+        
+        def list_users_cmd(update, context):
+            """Список пользователей (админ)"""
+            user_id = update.effective_user.id
+            
+            if not is_admin(user_id):
+                update.message.reply_text("❌ Доступ запрещен")
+                return
+            
+            if not users_db:
+                update.message.reply_text("📊 База пользователей пуста")
+                return
+            
+            text = "📊 **СПИСОК ПОЛЬЗОВАТЕЛЕЙ:**\n\n"
+            for uid, data in users_db.items():
+                status = "💎 ПРЕМИУМ" if data['is_premium'] else "🎯 БЕСПЛАТНЫЙ"
+                text += f"ID: `{uid}` - {status}\n"
+            
+            text += f"\n📈 Всего: {len(users_db)} пользователей"
+            text += f"\n💎 Премиум: {sum(1 for u in users_db.values() if u['is_premium'])}"
+            
+            update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        
+        def my_status(update, context):
+            """Мой статус"""
+            user_id = update.effective_user.id
+            user_data = get_user(user_id)
+            
+            status_text = f"""
+📊 **ВАШ СТАТУС**
+
+👤 ID: `{user_id}`
+💎 Статус: {'✅ ПРЕМИУМ' if user_data['is_premium'] else '🎯 БЕСПЛАТНЫЙ'}
+📈 Сигналов сегодня: {user_data['signals_today']}
+
+{'📅 Подписка истекает: ' + datetime.fromtimestamp(user_data['premium_expiry']).strftime('%d.%m.%Y') if user_data['is_premium'] and user_data['premium_expiry'] else ''}
+            """
+            
+            update.message.reply_text(status_text.strip(), parse_mode=ParseMode.MARKDOWN)
+        
+        # ================== РЕГИСТРАЦИЯ КОМАНД ==================
+        dispatcher.add_handler(CommandHandler("start", start))
         dispatcher.add_handler(CommandHandler("signals", signals_command))
-        dispatcher.add_handler(CommandHandler("support", support_command))
-        dispatcher.add_handler(CommandHandler("help", start_command))
+        dispatcher.add_handler(CommandHandler("subscription", subscription_command))
+        dispatcher.add_handler(CommandHandler("mystatus", my_status))
+        
+        # Админ-команды
+        dispatcher.add_handler(CommandHandler("activate_premium", activate_premium_cmd))
+        dispatcher.add_handler(CommandHandler("list_users", list_users_cmd))
+        
+        # Кнопки
+        def button_handler(update, context):
+            query = update.callback_query
+            query.answer()
+            
+            user_id = query.from_user.id
+            
+            if query.data == "signals":
+                signals_command(update, context)
+            elif query.data == "subscription":
+                subscription_command(update, context)
+            elif query.data == "mystatus":
+                my_status(update, context)
+            elif query.data == "admin" and is_admin(user_id):
+                query.message.reply_text(
+                    "👑 **АДМИН-ПАНЕЛЬ**\n\n"
+                    "Доступные команды:\n"
+                    "• /activate_premium <user_id> [дней]\n"
+                    "• /list_users\n\n"
+                    "Для активации премиума:\n"
+                    "`/activate_premium 123456789 30`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+        
+        dispatcher.add_handler(CallbackQueryHandler(button_handler))
+        
+        # ================== ЗАПУСК ==================
+        logger.info("✅ Бот инициализирован")
         
         # Запускаем polling
-        logger.info("✅ Бот готов к работе!")
         updater.start_polling(
             poll_interval=2.0,
             timeout=20,
-            drop_pending_updates=True,
-            allowed_updates=['message', 'callback_query']
+            drop_pending_updates=True
         )
         
-        logger.info("🤖 Бот начал слушать сообщения...")
+        logger.info("🤖 Бот слушает сообщения...")
         
-        # Бесконечный цикл
         while True:
             time.sleep(10)
             
     except Exception as e:
         logger.error(f"❌ Ошибка бота: {e}")
-        # Не перезапускаем - лучше упасть чем конфликтовать
+        import traceback
+        traceback.print_exc()
 
 # ================== ГЛАВНЫЙ ЗАПУСК ==================
 def main():
-    """Основная функция - запуск ВСЕГО в правильном порядке"""
-    logger.info("=" * 60)
-    logger.info("🚀 НАЧАЛО РАБОТЫ СИСТЕМЫ")
-    logger.info("=" * 60)
+    """Основная функция"""
+    logger.info("🚀 Начало работы системы...")
     
-    # Проверка токена
     if not TELEGRAM_TOKEN:
-        logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: TELEGRAM_TOKEN не установлен!")
-        logger.error("💡 Добавьте в Render Dashboard:")
-        logger.error("   TELEGRAM_TOKEN = ваш_токен_от_BotFather")
+        logger.error("❌ Нет TELEGRAM_TOKEN!")
         return
     
-    # Запускаем в отдельных потоках
-    threads = []
-    
-    # 1. Веб-сервер (главный поток)
-    web_thread = threading.Thread(target=run_web_server, daemon=True, name="WebServer")
+    # Запускаем веб-сервер в отдельном потоке
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
-    threads.append(web_thread)
     
-    # Ждем запуска веб-сервера
-    time.sleep(3)
+    time.sleep(2)
     
-    # 2. Основной бот
-    bot_thread = threading.Thread(target=run_main_bot, daemon=True, name="MainBot")
-    bot_thread.start()
-    threads.append(bot_thread)
-    
-    logger.info("✅ Все компоненты запущены!")
-    logger.info(f"🌐 Веб-интерфейс: https://crypto-bot-612m.onrender.com")
-    logger.info(f"🤖 Бот Telegram: @CryptoSignalsProBot")
-    logger.info("=" * 60)
-    
-    # Мониторинг
-    try:
-        counter = 0
-        while True:
-            time.sleep(60)
-            counter += 1
-            logger.info(f"⏱ Система активна {counter} мин: {datetime.now().strftime('%H:%M:%S')}")
-            
-    except KeyboardInterrupt:
-        logger.info("\n🛑 Остановка по команде...")
-    except Exception as e:
-        logger.error(f"❌ Непредвиденная ошибка: {e}")
+    # Запускаем бота в основном потоке
+    run_main_bot()
 
-# ================== ЗАПУСК ==================
+# ================== ТОЧКА ВХОДА ==================
 if __name__ == "__main__":
-    """Точка входа - без лишних проверок"""
-    print("=" * 60)
-    print("🚀 ЗАПУСК CRYPTO SIGNALS BOT")
-    print("=" * 60)
-    
     try:
         main()
     except KeyboardInterrupt:
-        print("\n🛑 Остановка по команде пользователя")
+        print("\n🛑 Остановка...")
     except Exception as e:
         print(f"❌ Критическая ошибка: {e}")
-        import traceback
-        traceback.print_exc()
         sys.exit(1)
