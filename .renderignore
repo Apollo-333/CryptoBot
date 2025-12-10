@@ -1,0 +1,8 @@
+# .renderignore
+main_old.py
+support_bot_old.py
+main.py
+support_bot.py
+*.bak
+__pycache__/
+*.pyc
