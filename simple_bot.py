@@ -1,53 +1,36 @@
-"""
-🚀 MINIMAL WORKING BOT - NO APSCHEDULER, NO CONFLICTS
-"""
+# simple_bot.py - исправленный для PTB 20.x
 import os
 import sys
 import time
 import logging
+import threading
 
-# ================== НАСТРОЙКА ==================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID", "0")
-
-print("=" * 60)
-print("🤖 MINIMAL CRYPTO BOT")
-print(f"Token: {'✅' if TELEGRAM_TOKEN else '❌'}")
-print(f"Admin: {ADMIN_ID}")
-print("=" * 60)
 
 # ================== ВЕБ-СЕРВЕР ==================
 def run_web():
-    """Простой веб-сервер"""
-    try:
-        from flask import Flask
-        from waitress import serve
-        
-        app = Flask(__name__)
-        
-        @app.route('/')
-        def home():
-            return "🤖 Crypto Bot - ACTIVE ✅"
-        
-        @app.route('/health')
-        def health():
-            return "OK", 200
-        
-        port = int(os.environ.get('PORT', 10000))
-        logger.info(f"🌐 Web server on port {port}")
-        serve(app, host="0.0.0.0", port=port)
-    except Exception as e:
-        logger.error(f"Web error: {e}")
+    from flask import Flask
+    from waitress import serve
+    
+    app = Flask(__name__)
+    
+    @app.route('/')
+    def home():
+        return "🤖 Crypto Bot - ACTIVE ✅"
+    
+    @app.route('/health')
+    def health():
+        return "OK", 200
+    
+    port = int(os.environ.get('PORT', 10000))
+    logger.info(f"🌐 Web server on port {port}")
+    serve(app, host="0.0.0.0", port=port)
 
-# ================== БОТ ==================
+# ================== БОТ (для PTB 20.x) ==================
 def run_bot():
-    """Минимальный бот без APScheduler"""
     time.sleep(3)
     
     if not TELEGRAM_TOKEN:
@@ -55,59 +38,38 @@ def run_bot():
         return
     
     try:
-        # Импортируем ТОЛЬКО необходимые модули
-        from telegram import Bot
-        import telegram.ext
+        # НОВЫЙ API для PTB 20.x
+        from telegram.ext import Application, CommandHandler, ContextTypes
+        from telegram import Update
         
         logger.info("🤖 Creating bot instance...")
         
-        # Создаем вручную без APScheduler
-        from telegram.ext import Updater, CommandHandler
+        # Создаем Application (новый стиль)
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
         
-        # 1. Создаем Updater
-        updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+        # Команды (должны быть async)
+        async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            await update.message.reply_text("🚀 Bot is working!")
         
-        # 2. ВАЖНО: Полностью сбрасываем offset
-        try:
-            logger.info("🔄 FULL offset reset...")
-            # Получаем все обновления и отмечаем их как обработанные
-            updater.bot.get_updates(offset=-1)
-            time.sleep(2)
-        except Exception as e:
-            logger.warning(f"Offset warning: {e}")
+        async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            await update.message.reply_text("🤖 Commands: /start, /help, /ping")
         
-        # 3. Простые команды
-        def start(update, context):
-            update.message.reply_text("🚀 Bot is working!")
+        async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            await update.message.reply_text("🏓 Pong!")
         
-        def help_cmd(update, context):
-            update.message.reply_text("🤖 Commands: /start, /help, /ping")
+        # Регистрируем команды
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_cmd))
+        application.add_handler(CommandHandler("ping", ping))
         
-        def ping(update, context):
-            update.message.reply_text("🏓 Pong!")
-        
-        # 4. Регистрируем команды
-        dp = updater.dispatcher
-        dp.add_handler(CommandHandler("start", start))
-        dp.add_handler(CommandHandler("help", help_cmd))
-        dp.add_handler(CommandHandler("ping", ping))
-        
-        # 5. Запускаем polling с параметрами для избежания конфликтов
+        # Запускаем polling
         logger.info("✅ Starting polling...")
-        updater.start_polling(
-            poll_interval=3.0,  # Увеличиваем интервал
+        application.run_polling(
+            poll_interval=3.0,
             timeout=25,
-            drop_pending_updates=True,
-            allowed_updates=['message']
+            drop_pending_updates=True
         )
         
-        logger.info("✅ Bot started successfully!")
-        
-        # 6. Бесконечный цикл
-        while True:
-            time.sleep(30)
-            logger.info("🤖 Bot heartbeat...")
-            
     except Exception as e:
         logger.error(f"❌ Bot error: {e}")
         import traceback
@@ -115,23 +77,15 @@ def run_bot():
 
 # ================== ГЛАВНЫЙ ЗАПУСК ==================
 def main():
-    """Запуск всего"""
     import threading
     
-    # Запускаем веб в отдельном потоке
     web_thread = threading.Thread(target=run_web, daemon=True)
     web_thread.start()
-    
-    # Даем вебу время запуститься
     time.sleep(2)
-    
-    # Запускаем бота в основном потоке
     run_bot()
 
-# ================== ТОЧКА ВХОДА ==================
 if __name__ == "__main__":
-    print("🚀 Starting minimal bot...")
-    
+    print("🚀 Starting bot...")
     try:
         main()
     except KeyboardInterrupt:
