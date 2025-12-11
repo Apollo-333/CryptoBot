@@ -8,7 +8,7 @@ import time
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any
 
 # ================== НАСТРОЙКА ==================
@@ -126,6 +126,7 @@ def run_web_server():
         def home():
             db = load_database()
             premium_count = sum(1 for user in db.values() if user.get("is_premium"))
+            current_time = datetime.now().strftime('%H:%M:%S %d.%m.%Y')
             
             return f"""
             <html>
@@ -143,7 +144,7 @@ def run_web_server():
                     
                     <div class="status ok">
                         <h2>✅ Система активна</h2>
-                        <p><strong>Время сервера:</strong> {datetime.now().strftime('%H:%M:%S %d.%m.%Y')}</p>
+                        <p><strong>Время сервера:</strong> {current_time}</p>
                         <p><strong>Статус:</strong> Бот работает стабильно</p>
                         <p><strong>Telegram:</strong> @CryptoSignalsProBot</p>
                     </div>
@@ -185,18 +186,24 @@ def run_web_server():
 # ================== ТОРГОВЫЕ СИГНАЛЫ ==================
 async def generate_premium_signal() -> str:
     """Генерация премиум сигнала"""
+    current_time = datetime.now().strftime('%H:%M %d.%m.%Y')
+    price = 42000 + int(time.time() % 1000)
+    target = 43000 + int(time.time() % 1500)
+    stop_loss = 41000 + int(time.time() % 800)
+    confidence = 75 + int(time.time() % 20)
+    
     return f"""
 💎 **ПРЕМИУМ СИГНАЛ** 💎
 
 🏷 **Пара:** BTC/USDT
 ⚡ **Действие:** {'BUY' if time.time() % 2 == 0 else 'SELL'}
-💰 **Текущая цена:** ${42000 + int(time.time() % 1000):,}
-🎯 **Цель:** ${43000 + int(time.time() % 1500):,}
-🛑 **Стоп-лосс:** ${41000 + int(time.time() % 800):,}
+💰 **Текущая цена:** ${price:,}
+🎯 **Цель:** ${target:,}
+🛑 **Стоп-лосс:** ${stop_loss:,}
 📈 **Плечо:** {'3x' if time.time() % 3 == 0 else '5x'}
-✅ **Уверенность:** {75 + int(time.time() % 20)}%
+✅ **Уверенность:** {confidence}%
 
-⏰ **Время сигнала:** {datetime.now().strftime('%H:%M %d.%m.%Y')}
+⏰ **Время сигнала:** {current_time}
 💡 **Основа:** Анализ рыночных данных и индикаторов
 
 📊 **Рекомендации:**
@@ -245,6 +252,14 @@ async def start_command(update, context):
     # Получаем/создаем пользователя
     user_data = get_user(user_id)
     
+    admin_commands = ""
+    if is_admin(user_id):
+        admin_commands = """
+👑 **Админ-команды:**
+• /activate <user_id> [дней] - Активировать премиум
+• /users - Список пользователей
+"""
+    
     welcome_text = f"""
 🚀 **Добро пожаловать в Crypto Signals Pro, {user.first_name}!** 🚀
 
@@ -256,11 +271,8 @@ async def start_command(update, context):
 • /premium - Информация о подписке
 • /mystatus - Мой статус и статистика
 • /support - Техническая поддержка
-
-{'👑 **Админ-команды:**' if is_admin(user_id) else ''}
-{'• /activate <user_id> [дней] - Активировать премиум' if is_admin(user_id) else ''}
-{'• /users - Список пользователей' if is_admin(user_id) else ''}
-
+• /help - Помощь по командам
+{admin_commands}
 💡 **Начните с команды /signals!**
     """
     
@@ -376,6 +388,24 @@ async def mystatus_command(update, context):
         })
         user_data['signals_today'] = 0
     
+    # Формируем текст о подписке
+    subscription_info = ""
+    if user_data.get('is_premium') and user_data.get('premium_expiry'):
+        try:
+            expiry_date = datetime.fromisoformat(user_data['premium_expiry'])
+            expiry_str = expiry_date.strftime('%d.%m.%Y')
+            subscription_info = f"📅 **Подписка истекает:** {expiry_str}"
+        except:
+            subscription_info = "💡 **Для активации премиума:** /premium"
+    else:
+        subscription_info = "💡 **Для активации премиума:** /premium"
+    
+    join_date = datetime.fromisoformat(
+        user_data.get('join_date', datetime.now().isoformat())
+    ).strftime('%d.%m.%Y')
+    
+    signals_limit = '∞' if user_data.get('is_premium') else '1'
+    
     status_text = f"""
 📊 **ВАШ СТАТУС**
 
@@ -384,21 +414,11 @@ async def mystatus_command(update, context):
 💎 **Премиум статус:** {'✅ АКТИВЕН' if user_data.get('is_premium') else '❌ НЕ АКТИВЕН'}
 
 📈 **Статистика:**
-• Сигналов сегодня: {user_data.get('signals_today', 0)}/{
-    '∞' if user_data.get('is_premium') else '1'
-}
+• Сигналов сегодня: {user_data.get('signals_today', 0)}/{signals_limit}
 • Всего сигналов: {user_data.get('total_signals', 0)}
-• Дата регистрации: {datetime.fromisoformat(
-    user_data.get('join_date', datetime.now().isoformat())
-).strftime('%d.%m.%Y')}
+• Дата регистрации: {join_date}
 
-{
-    f"📅 **Подписка истекает:** {datetime.fromisoformat(
-        user_data['premium_expiry']
-    ).strftime('%d.%m.%Y')}" 
-    if user_data.get('is_premium') and user_data.get('premium_expiry') 
-    else '💡 **Для активации премиума:** /premium'
-}
+{subscription_info}
     """
     
     await update.message.reply_text(status_text.strip(), parse_mode='Markdown')
@@ -408,11 +428,13 @@ async def support_command(update, context):
     user = update.effective_user
     user_id = user.id
     
+    current_time = datetime.now().strftime('%d.%m.%Y %H:%M')
+    
     support_text = f"""
 🆘 **ТЕХНИЧЕСКАЯ ПОДДЕРЖКА**
 
 👤 **Ваш ID:** `{user_id}`
-📅 **Дата обращения:** {datetime.now().strftime('%d.%m.%Y %H:%M')}
+📅 **Дата обращения:** {current_time}
 
 🤖 **Бот поддержки:**
 @CryptoSignalsSupportBot
@@ -469,12 +491,16 @@ async def activate_command(update, context):
             "activated_at": datetime.now().isoformat()
         })
         
+        expiry_formatted = datetime.fromisoformat(expiry_date).strftime('%d.%m.%Y')
+        db = load_database()
+        premium_count = sum(1 for u in db.values() if u.get('is_premium'))
+        
         await update.message.reply_text(
             f"✅ **Премиум активирован!**\n\n"
             f"👤 Пользователь: `{target_id}`\n"
             f"📅 Срок: {days} дней\n"
-            f"⏰ Истекает: {datetime.fromisoformat(expiry_date).strftime('%d.%m.%Y')}\n\n"
-            f"📊 Всего премиум пользователей: {sum(1 for u in load_database().values() if u.get('is_premium'))}",
+            f"⏰ Истекает: {expiry_formatted}\n\n"
+            f"📊 Всего премиум пользователей: {premium_count}",
             parse_mode='Markdown'
         )
         
@@ -534,9 +560,11 @@ async def users_command(update, context):
     
     for i, (uid, data) in enumerate(sorted_users, 1):
         status = "💎" if data.get('is_premium') else "🎯"
-        join_date = datetime.fromisoformat(
-            data.get('join_date', datetime.now().isoformat())
-        ).strftime('%d.%m')
+        join_date_str = data.get('join_date', datetime.now().isoformat())
+        try:
+            join_date = datetime.fromisoformat(join_date_str).strftime('%d.%m')
+        except:
+            join_date = "??.??"
         users_text += f"{i}. {status} `{uid}` - {join_date}\n"
     
     users_text += f"\n💡 **Полный список:** {len(db)} пользователей"
@@ -585,7 +613,6 @@ def run_bot():
     try:
         from telegram import Update
         from telegram.ext import Application, CommandHandler, ContextTypes
-        from datetime import timedelta
         
         logger.info("🤖 Инициализация основного бота...")
         
