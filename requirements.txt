@@ -1,4 +1,4 @@
-# MINIMAL requirements for Telegram bot
-python-telegram-bot==20.7  # НОВАЯ версия без APScheduler конфликтов
+python-telegram-bot==20.7
 aiohttp==3.9.3
-
+Flask==2.3.3
+waitress==2.1.2
