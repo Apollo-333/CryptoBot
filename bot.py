@@ -405,10 +405,11 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         signals = []
         for symbol in symbols:
             signal = await generate_signal(symbol)
-        if signal:  # ← ПРОСТАЯ ПРОВЕРКА, без условия '!= HOLD'
-            signals.append(signal)
-        if len(signals) >= 2 and not user_data.get('is_premium'):
-            break
+            if signal:  # Простая проверка - если сигнал есть, добавляем
+                signals.append(signal)
+                # Если не премиум и получили сигнал - выходим из цикла
+                if not user_data.get('is_premium') and len(signals) >= 1:
+                    break  # ← ВОТ ЭТОТ break ДОЛЖЕН БЫТЬ ВНУТРИ ЦИКЛА!
         
         await loading_msg.delete()
         
