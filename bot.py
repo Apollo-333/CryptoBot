@@ -407,7 +407,7 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             signal = await generate_signal(symbol)
         if signal:  # ← ПРОСТАЯ ПРОВЕРКА, без условия '!= HOLD'
             signals.append(signal)
-                if len(signals) >= 2 and not user_data.get('is_premium'):
+        if len(signals) >= 2 and not user_data.get('is_premium'):
                     break
         
         await loading_msg.delete()
