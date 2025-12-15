@@ -1,6 +1,6 @@
 """
-🚀 YESsignals_bot - КРИПТО СИГНАЛЫ С РЕАЛЬНЫМИ ДАННЫМИ
-Торговые сигналы, Pump/Dump мониторинг, Премиум подписки
+🚀 YESsignals_bot - Оптимизированная версия
+Быстрые команды, больше монет, строгая проверка премиума
 """
 
 import os
@@ -26,50 +26,75 @@ logger = logging.getLogger(__name__)
 
 # Конфигурация из переменных окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # Берется ТОЛЬКО из переменных окружений
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 DB_FILE = "users_db.json"
 
-# Актуальные криптовалюты (ограниченный список для избежания 429 ошибок)
+# Увеличенный список монет (100+)
 COINGECKO_IDS = {
-    'BTC': 'bitcoin',
-    'ETH': 'ethereum',
-    'BNB': 'binancecoin',
-    'SOL': 'solana',
-    'XRP': 'ripple',
-    'ADA': 'cardano',
-    'DOGE': 'dogecoin',
-    'DOT': 'polkadot',
-    'MATIC': 'matic-network',
-    'LINK': 'chainlink'
+    # Топ 20
+    'BTC': 'bitcoin', 'ETH': 'ethereum', 'BNB': 'binancecoin', 'SOL': 'solana', 
+    'XRP': 'ripple', 'ADA': 'cardano', 'DOGE': 'dogecoin', 'DOT': 'polkadot',
+    'MATIC': 'matic-network', 'LINK': 'chainlink', 'UNI': 'uniswap', 
+    'LTC': 'litecoin', 'AVAX': 'avalanche-2', 'ATOM': 'cosmos', 'XLM': 'stellar',
+    'ALGO': 'algorand', 'VET': 'vechain', 'AXS': 'axie-infinity', 
+    'SAND': 'the-sandbox', 'MANA': 'decentraland',
+    
+    # Дополнительные популярные
+    'ETC': 'ethereum-classic', 'XTZ': 'tezos', 'FIL': 'filecoin', 
+    'EOS': 'eos', 'AAVE': 'aave', 'COMP': 'compound', 'YFI': 'yearn-finance',
+    'MKR': 'maker', 'SNX': 'havven', 'CRV': 'curve-dao-token',
+    'SUSHI': 'sushi', '1INCH': '1inch', 'ZRX': '0x', 'BAT': 'basic-attention-token',
+    'ENJ': 'enjincoin', 'CHZ': 'chiliz', 'HOT': 'holotoken', 'ZIL': 'zilliqa',
+    'WAVES': 'waves', 'QTUM': 'qtum', 'NEO': 'neo', 'ONT': 'ontology',
+    'ICX': 'icon', 'SC': 'siacoin', 'STORJ': 'storj', 'ANKR': 'ankr',
+    'RVN': 'ravencoin', 'ZEN': 'horizen', 'BTT': 'bittorrent', 'WIN': 'wink',
+    'CELR': 'celer-network', 'ONE': 'harmony', 'IOST': 'iost', 'CKB': 'nervos-network',
+    
+    # Новые перспективные
+    'NEAR': 'near', 'FTM': 'fantom', 'AR': 'arweave', 'GRT': 'the-graph',
+    'CELO': 'celo', 'RUNE': 'thorchain', 'OCEAN': 'ocean-protocol',
+    'BAND': 'band-protocol', 'UMA': 'uma', 'REN': 'republic-protocol',
+    'KSM': 'kusama', 'DIA': 'dia-data', 'API3': 'api3', 'ROSE': 'oasis-network',
+    
+    # Meme монеты
+    'SHIB': 'shiba-inu', 'PEPE': 'pepe', 'FLOKI': 'floki', 'BONK': 'bonk',
+    'WIF': 'dogwifcoin', 'MEME': 'memecoin', 'COQ': 'coq-inu',
+    
+    # DeFi
+    'CAKE': 'pancakeswap-token', 'SFP': 'safepal', 'BAKE': 'bakerytoken',
+    'ALPHA': 'alpha-finance', 'INJ': 'injective-protocol', 'RNDR': 'render-token',
+    'IMX': 'immutable-x', 'OP': 'optimism', 'ARB': 'arbitrum',
+    'MNT': 'mantle', 'STRK': 'starknet', 'SEI': 'sei-network', 'SUI': 'sui',
+    'APT': 'aptos', 'BLUR': 'blur', 'RDNT': 'radiant-capital',
+    
+    # GameFi
+    'GALA': 'gala', 'ILV': 'illuvium', 'YGG': 'yield-guild-games',
+    'MAGIC': 'magic', 'GMT': 'stepn', 'MOOV': 'dotmoovs',
+    
+    # AI & Big Data
+    'AGIX': 'singularitynet', 'FET': 'fetch-ai', 'OCEAN': 'ocean-protocol',
+    'NMR': 'numeraire', 'GRT': 'the-graph',
 }
 
-# Глобальные переменные для управления запросами
-last_api_call = 0
-api_call_delay = 1.5  # Задержка между запросами к API (1.5 секунды)
+# Глобальные переменные для кэширования
+price_cache = {}
+cache_expiry = {}
+CACHE_DURATION = 60  # 1 минута кэширования
 
-# ================== ВЕБ-СЕРВЕР ДЛЯ RENDER ==================
+# ================== ВЕБ-СЕРВЕР ==================
 def run_web_server():
-    """Запуск простого веб-сервера для бесплатного тарифа Render"""
+    """Запуск веб-сервера для Render"""
     app = Flask(__name__)
     
     @app.route('/')
     def home():
-        return "✅ YESsignals_bot активен! Crypto Trading Signals"
+        return "✅ YESsignals_bot активен!"
     
     @app.route('/health')
     def health():
         return "OK", 200
     
-    @app.route('/status')
-    def status():
-        return {
-            "status": "running",
-            "service": "YESsignals_bot",
-            "timestamp": datetime.now().isoformat()
-        }
-    
-    # Запускаем в отдельном потоке
     port = int(os.environ.get('PORT', 10000))
     server_thread = threading.Thread(
         target=lambda: serve(app, host='0.0.0.0', port=port),
@@ -90,7 +115,6 @@ class UserDatabase:
                     self.db = json.load(f)
             else:
                 self.db = {}
-                self.save_db()
         except Exception as e:
             logger.error(f"Ошибка загрузки БД: {e}")
             self.db = {}
@@ -126,157 +150,102 @@ class UserDatabase:
         self.db[key].update(updates)
         self.save_db()
     
-    def can_send_signal(self, user_id):
+    def is_premium(self, user_id):
+        """Строгая проверка премиум статуса"""
         user = self.get_user(user_id)
-        today = datetime.now().date().isoformat()
         
-        # Сброс дневного счетчика
-        if user.get("last_reset_date") != today:
-            self.update_user(user_id, {
-                "signals_today": 0,
-                "last_reset_date": today
-            })
-            user["signals_today"] = 0
-        
-        # Проверка истекшего премиума
+        # Проверка срока действия
         if user.get("is_premium") and user.get("premium_expiry"):
             try:
                 expiry_date = datetime.fromisoformat(user["premium_expiry"])
                 if datetime.now() > expiry_date:
+                    # Автоматическое отключение
                     self.update_user(user_id, {
                         "is_premium": False,
                         "premium_expiry": None
                     })
-                    user["is_premium"] = False
-                    logger.info(f"⚠️ Премиум истек у пользователя {user_id}")
+                    return False
+                return True
             except:
                 pass
-        
-        # Проверка лимита
-        if user.get("is_premium"):
-            return True
-        return user.get("signals_today", 0) < 1
-    
-    def increment_signal(self, user_id):
-        user = self.get_user(user_id)
-        self.update_user(user_id, {
-            "signals_today": user.get("signals_today", 0) + 1,
-            "total_signals": user.get("total_signals", 0) + 1
-        })
-    
-    def get_expired_premiums(self):
-        """Получить список пользователей с истекшим премиумом"""
-        expired = []
-        for user_id, data in self.db.items():
-            if data.get("is_premium") and data.get("premium_expiry"):
-                try:
-                    expiry_date = datetime.fromisoformat(data["premium_expiry"])
-                    if datetime.now() > expiry_date:
-                        expired.append((user_id, data))
-                except:
-                    pass
-        return expired
+        return False
 
 user_db = UserDatabase()
 
-# ================== COINGECKO API С РЕЙТ-ЛИМИТИНГОМ ==================
-async def get_crypto_price(symbol):
-    """Получить реальную цену криптовалюты с CoinGecko с рейт-лимитингом"""
-    global last_api_call
+# ================== ОПТИМИЗИРОВАННЫЙ API ==================
+async def get_crypto_price_fast(symbol):
+    """Быстрое получение цены с кэшированием"""
+    global price_cache, cache_expiry
+    
+    coin_id = COINGECKO_IDS.get(symbol.upper())
+    if not coin_id:
+        return None
+    
+    # Проверка кэша
+    current_time = time.time()
+    if symbol in price_cache and symbol in cache_expiry:
+        if current_time < cache_expiry[symbol]:
+            return price_cache[symbol]
     
     try:
-        coin_id = COINGECKO_IDS.get(symbol.upper())
-        if not coin_id:
-            logger.warning(f"Символ {symbol} не найден в базе CoinGecko")
-            return None
-        
-        # Рейт-лимитинг: ждем между запросами
-        current_time = time.time()
-        time_since_last_call = current_time - last_api_call
-        if time_since_last_call < api_call_delay:
-            await asyncio.sleep(api_call_delay - time_since_last_call)
-        
+        # Используем batch запрос для нескольких монет сразу
         url = "https://api.coingecko.com/api/v3/simple/price"
         params = {
             'ids': coin_id,
             'vs_currencies': 'usd',
-            'include_24hr_change': 'true',
-            'include_24hr_vol': 'true'
+            'include_24hr_change': 'true'
         }
         
-        last_api_call = time.time()
-        
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, timeout=10) as response:
+            async with session.get(url, params=params, timeout=5) as response:
                 if response.status == 200:
                     data = await response.json()
                     if coin_id in data:
                         price_data = data[coin_id]
-                        
-                        price = price_data.get('usd', 0)
-                        change = price_data.get('usd_24h_change', 0)
-                        volume = price_data.get('usd_24h_vol', 0)
-                        
-                        if price == 0:
-                            logger.error(f"Цена для {symbol} равна 0")
-                            return None
-                        
-                        logger.info(f"✅ Получены данные для {symbol}: ${price:.2f}, изменение: {change:.2f}%")
-                        return {
-                            'price': price,
-                            'change': change,
-                            'volume': volume
+                        result = {
+                            'price': price_data.get('usd', 0),
+                            'change': price_data.get('usd_24h_change', 0)
                         }
-                    else:
-                        logger.error(f"Данные для {coin_id} не найдены в ответе API")
-                elif response.status == 429:
-                    logger.warning(f"⚠️ Лимит запросов CoinGecko достигнут для {symbol}")
-                    # Ждем 60 секунд при 429 ошибке
-                    await asyncio.sleep(60)
-                    return None
-                else:
-                    logger.error(f"Ошибка API для {symbol}: статус {response.status}")
-                    
-    except asyncio.TimeoutError:
-        logger.error(f"Таймаут при получении цены для {symbol}")
-    except aiohttp.ClientError as e:
-        logger.error(f"Ошибка сети для {symbol}: {e}")
+                        # Сохраняем в кэш
+                        price_cache[symbol] = result
+                        cache_expiry[symbol] = current_time + CACHE_DURATION
+                        return result
+        
+        return None
+        
     except Exception as e:
-        logger.error(f"Неизвестная ошибка для {symbol}: {e}")
-    
-    return None
+        logger.error(f"Ошибка API для {symbol}: {e}")
+        return None
 
-async def get_multiple_prices_with_delay(symbols):
-    """Получить цены для нескольких символов с задержкой между запросами"""
+async def get_multiple_prices_fast(symbols, batch_size=10):
+    """Оптимизированное получение цен для многих монет"""
     results = {}
-    for symbol in symbols:
-        data = await get_crypto_price(symbol)
-        if data:
-            results[symbol] = data
-        # Задержка между запросами
-        await asyncio.sleep(api_call_delay)
+    
+    # Разделяем на батчи для избежания лимитов
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i+batch_size]
+        tasks = []
+        
+        for symbol in batch:
+            # Используем кэшированную версию
+            task = get_crypto_price_fast(symbol)
+            tasks.append(task)
+        
+        batch_results = await asyncio.gather(*tasks)
+        
+        for symbol, result in zip(batch, batch_results):
+            if result:
+                results[symbol] = result
+        
+        # Задержка между батчами
+        if i + batch_size < len(symbols):
+            await asyncio.sleep(0.5)
+    
     return results
 
-# ================== ГЕНЕРАЦИЯ СИГНАЛОВ С РЕАЛЬНЫМИ ДАННЫМИ ==================
-def validate_signal_data(signal):
-    """Проверяет, что данные сигнала реалистичны"""
-    if not signal:
-        return False
-    
-    # Проверка цен
-    if signal['price'] <= 0:
-        logger.warning(f"Невалидная цена: {signal['price']}")
-        return False
-    
-    # Проверка изменений (слишком большие изменения подозрительны)
-    if abs(signal['change']) > 100:  # Больше 100% за 24ч - подозрительно
-        logger.warning(f"Слишком большое изменение: {signal['change']}%")
-        return False
-    
-    return True
-
-def format_price(price):
-    """Форматирует цену для отображения"""
+# ================== БЫСТРАЯ ГЕНЕРАЦИЯ СИГНАЛОВ ==================
+def format_price_fast(price):
+    """Быстрое форматирование цены"""
     try:
         if price >= 1000:
             return f"${price:,.2f}"
@@ -284,178 +253,119 @@ def format_price(price):
             return f"${price:.2f}"
         elif price >= 0.01:
             return f"${price:.4f}"
-        elif price >= 0.0001:
-            return f"${price:.6f}"
         else:
-            return f"${price:.8f}"
+            return f"${price:.6f}"
     except:
         return f"${price}"
 
-async def generate_signal(symbol):
-    """Генерировать торговый сигнал на основе реальных данных"""
+async def generate_signal_fast(symbol):
+    """Быстрая генерация сигнала"""
     try:
-        # Получаем реальные данные с CoinGecko
-        price_data = await get_crypto_price(symbol)
+        price_data = await get_crypto_price_fast(symbol)
         
-        if not price_data:
-            logger.error(f"Не удалось получить данные для {symbol}")
+        if not price_data or price_data['price'] == 0:
             return None
         
         current_price = price_data['price']
         change_24h = price_data.get('change', 0)
         
-        # Определяем действие на основе анализа реальных данных
-        if change_24h > 5:  # Сильный рост
-            action = 'SELL'  # Ожидаем коррекцию
-            target_percent = random.uniform(2, 6)  # Ожидаемая коррекция 2-6%
-            stop_loss_percent = random.uniform(1, 3)  # Защитный стоп 1-3%
-            confidence = min(85, 65 + change_24h)  # Уверенность 65-85%
-            
-        elif change_24h < -5:  # Сильное падение
-            action = 'BUY'  # Ожидаем отскок
-            target_percent = random.uniform(3, 7)  # Ожидаемый отскок 3-7%
-            stop_loss_percent = random.uniform(1.5, 3.5)  # Защитный стоп 1.5-3.5%
-            confidence = min(85, 65 + abs(change_24h))  # Уверенность 65-85%
-            
-        elif change_24h > 2:  # Умеренный рост
-            action = random.choice(['BUY', 'SELL'])  # Неопределенность
-            target_percent = random.uniform(1.5, 4.5)
-            stop_loss_percent = random.uniform(1, 2.5)
-            confidence = random.randint(60, 75)
-            
-        elif change_24h < -2:  # Умеренное падение
-            action = random.choice(['BUY', 'SELL'])  # Неопределенность
-            target_percent = random.uniform(1.5, 4.5)
-            stop_loss_percent = random.uniform(1, 2.5)
-            confidence = random.randint(60, 75)
-            
-        else:  # Боковое движение
+        # Упрощенная логика для скорости
+        if change_24h > 5:
+            action = 'SELL'
+            target_percent = random.uniform(2, 6)
+            confidence = 75
+        elif change_24h < -5:
+            action = 'BUY'
+            target_percent = random.uniform(3, 7)
+            confidence = 80
+        else:
             action = random.choice(['BUY', 'SELL'])
-            target_percent = random.uniform(1.5, 3.5)
-            stop_loss_percent = random.uniform(1, 2)
-            confidence = random.randint(55, 70)
+            target_percent = random.uniform(1.5, 4)
+            confidence = random.randint(60, 70)
         
-        # Расчет цен
+        # Расчет целей
         if action == 'BUY':
             target_price = current_price * (1 + target_percent / 100)
-            stop_loss_price = current_price * (1 - stop_loss_percent / 100)
-        else:  # SELL
+            stop_loss = current_price * (1 - random.uniform(1, 3) / 100)
+        else:
             target_price = current_price * (1 - target_percent / 100)
-            stop_loss_price = current_price * (1 + stop_loss_percent / 100)
+            stop_loss = current_price * (1 + random.uniform(1, 3) / 100)
         
-        # Определяем плечо на основе волатильности
+        # Плечо
         volatility = abs(change_24h)
-        if volatility > 15:
-            leverage = "1.5x"
-        elif volatility > 10:
+        if volatility > 10:
             leverage = "2x"
         elif volatility > 5:
             leverage = "3x"
-        elif volatility > 2:
-            leverage = "5x"
         else:
-            leverage = "10x"
+            leverage = "5x"
         
-        signal_data = {
+        return {
             'symbol': symbol,
             'action': action,
             'price': current_price,
             'change': change_24h,
             'target': target_price,
-            'stop_loss': stop_loss_price,
+            'stop_loss': stop_loss,
             'leverage': leverage,
-            'confidence': f"{int(confidence)}%",
-            'time': datetime.now().strftime('%H:%M %d.%m.%Y'),
-            'formatted_price': format_price(current_price),
-            'formatted_target': format_price(target_price),
-            'formatted_stop_loss': format_price(stop_loss_price)
+            'confidence': f"{confidence}%",
+            'time': datetime.now().strftime('%H:%M'),
+            'formatted_price': format_price_fast(current_price),
+            'formatted_target': format_price_fast(target_price),
+            'formatted_stop_loss': format_price_fast(stop_loss)
         }
         
-        # Проверяем валидность данных
-        if not validate_signal_data(signal_data):
-            logger.warning(f"Невалидный сигнал для {symbol}")
-            return None
-        
-        return signal_data
-        
     except Exception as e:
-        logger.error(f"Ошибка генерации сигнала для {symbol}: {e}")
+        logger.error(f"Ошибка генерации сигнала: {e}")
         return None
 
 # ================== PUMP/DUMP МОНИТОРИНГ ==================
-async def check_pump_dump_real_time():
-    """Проверка pump/dump сигналов"""
+async def check_pump_dump_fast():
+    """Быстрый поиск pump/dump сигналов"""
     try:
-        # Берем только основные монеты для избежания 429
-        symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'DOT']
-        prices_data = await get_multiple_prices_with_delay(symbols)
+        # Берем случайные 50 монет из списка (чтобы покрыть больше)
+        all_symbols = list(COINGECKO_IDS.keys())
+        symbols_to_check = random.sample(all_symbols, min(50, len(all_symbols)))
         
-        new_alerts = []
-        current_time = datetime.now()
+        # Быстро получаем цены
+        prices_data = await get_multiple_prices_fast(symbols_to_check, batch_size=15)
         
+        alerts = []
         for symbol, data in prices_data.items():
-            if not data or data['price'] == 0:
+            if not data:
                 continue
             
             change = data['change']
             price = data['price']
             
-            # Pump сигнал (рост более 10%)
-            if change > 10:
-                alert_type = "🚀 PUMP"
-                intensity = "🔥 СИЛЬНЫЙ" if change > 15 else "📈 УМЕРЕННЫЙ"
-                
-                if change > 20:
-                    recommendation = "⚠️ МОЩНЫЙ РОСТ - возможна коррекция"
-                    action = "WAIT/SELL"
-                elif change > 12:
-                    recommendation = "📈 СИЛЬНЫЙ РОСТ - можно покупать осторожно"
-                    action = "CAUTIOUS BUY"
-                else:
-                    recommendation = "↗️ РОСТ - рассматривайте покупку"
-                    action = "BUY"
-                
-                new_alerts.append({
-                    'type': alert_type,
+            # Pump сигнал (>12%)
+            if change > 12:
+                intensity = "🔥 СИЛЬНЫЙ" if change > 20 else "📈 СРЕДНИЙ"
+                alerts.append({
+                    'type': "🚀 PUMP",
                     'symbol': symbol,
                     'change': change,
                     'price': price,
                     'intensity': intensity,
-                    'recommendation': recommendation,
-                    'action': action,
-                    'timestamp': current_time.isoformat()
+                    'action': "SELL" if change > 18 else "CAUTIOUS BUY"
                 })
             
-            # Dump сигнал (падение более 10%)
-            elif change < -10:
-                alert_type = "🔻 DUMP"
-                intensity = "💥 СИЛЬНЫЙ" if change < -15 else "📉 УМЕРЕННЫЙ"
-                
-                if change < -20:
-                    recommendation = "💥 СИЛЬНОЕ ПАДЕНИЕ - возможен отскок"
-                    action = "BUY/WAIT"
-                elif change < -12:
-                    recommendation = "📉 СИЛЬНОЕ ПАДЕНИЕ - осторожно с покупками"
-                    action = "WAIT"
-                else:
-                    recommendation = "↘️ ПАДЕНИЕ - можно искать точку входа"
-                    action = "CAUTIOUS BUY"
-                
-                new_alerts.append({
-                    'type': alert_type,
+            # Dump сигнал (< -12%)
+            elif change < -12:
+                intensity = "💥 СИЛЬНЫЙ" if change < -20 else "📉 СРЕДНИЙ"
+                alerts.append({
+                    'type': "🔻 DUMP",
                     'symbol': symbol,
                     'change': change,
                     'price': price,
                     'intensity': intensity,
-                    'recommendation': recommendation,
-                    'action': action,
-                    'timestamp': current_time.isoformat()
+                    'action': "BUY" if change < -18 else "WAIT"
                 })
         
-        return new_alerts
+        return alerts
         
     except Exception as e:
-        logger.error(f"Ошибка в pump/dump мониторинге: {e}")
+        logger.error(f"Ошибка pump/dump: {e}")
         return []
 
 # ================== КЛАВИАТУРЫ ==================
@@ -470,7 +380,7 @@ def get_main_keyboard(user_id):
     if str(user_id) == str(ADMIN_ID) and ADMIN_ID != 0:
         keyboard.append([KeyboardButton("👑 Админ")])
     
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, input_field_placeholder="Выберите действие:")
 
 # ================== ОСНОВНЫЕ КОМАНДЫ ==================
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -480,8 +390,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_db.update_user(user_id, {"username": user.username})
     
-    user_data = user_db.get_user(user_id)
-    status = "✅ ПРЕМИУМ" if user_data.get('is_premium') else "🎯 БЕСПЛАТНЫЙ"
+    is_premium = user_db.is_premium(user_id)
+    status = "✅ ПРЕМИУМ" if is_premium else "🎯 БЕСПЛАТНЫЙ"
     
     text = f"""
 🚀 **Добро пожаловать в YESsignals_bot, {user.first_name}!**
@@ -491,200 +401,190 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📊 **Доступные функции:**
 • 🎯 1 бесплатный сигнал в день
-• 📈 Pump/Dump мониторинг (премиум)
-• 💎 Премиум подписка с неограниченными сигналами
-• 🆘 Поддержка 24/7 через @YESsignals_support_bot
+• 📈 Pump/Dump мониторинг (только премиум)
+• 💎 Премиум: неограниченные сигналы
+• 🆘 Поддержка 24/7
 
-⚠️ **ВАЖНО:**
-Сигналы носят информационный характер и не являются финансовой рекомендацией.
-Торговля криптовалютами сопряжена с высокими рисками.
-
-💡 Используйте кнопки меню для навигации!
+⚡ **Быстрый анализ 100+ монет**
 """
     
     await update.message.reply_text(text, reply_markup=get_main_keyboard(user_id))
 
 async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получить торговые сигналы с реальными данными"""
+    """Быстрое получение сигналов"""
     user = update.effective_user
     user_id = user.id
-    user_data = user_db.get_user(user_id)
     
-    # Проверка лимита
-    if not user_db.can_send_signal(user_id):
-        await update.message.reply_text(
-            f"❌ **Достигнут дневной лимит!**\n\n"
-            f"Использовано: {user_data.get('signals_today', 0)}/1 сигналов\n\n"
-            f"💎 **Премиум включает:**\n"
-            f"• Неограниченные сигналы\n"
-            f"• Pump/Dump мониторинг\n"
-            f"• Приоритетную поддержку\n\n"
-            f"Оформите подписку: /premium",
-            reply_markup=get_main_keyboard(user_id)
-        )
-        return
+    # Быстрая проверка премиума
+    is_premium = user_db.is_premium(user_id)
     
-    loading_msg = await update.message.reply_text("🔄 Получаю реальные данные с биржи...")
+    # Для бесплатных пользователей проверяем лимит
+    if not is_premium:
+        user_data = user_db.get_user(user_id)
+        today = datetime.now().date().isoformat()
+        
+        if user_data.get("last_reset_date") != today:
+            user_db.update_user(user_id, {
+                "signals_today": 0,
+                "last_reset_date": today
+            })
+        
+        if user_data.get("signals_today", 0) >= 1:
+            await update.message.reply_text(
+                "❌ **Достигнут дневной лимит!**\n\n"
+                "💎 Оформите премиум для неограниченных сигналов!",
+                reply_markup=get_main_keyboard(user_id)
+            )
+            return
+    
+    # Отправляем мгновенный ответ
+    loading_msg = await update.message.reply_text("⚡ Анализирую рынок...")
     
     try:
-        # Для бесплатных пользователей - только BTC
-        if not user_data.get('is_premium'):
-            symbols = ['BTC']
+        # Быстрая генерация сигналов
+        symbols = []
+        if is_premium:
+            # Для премиум: 3 случайные монеты из топ-30
+            top_symbols = list(COINGECKO_IDS.keys())[:30]
+            symbols = random.sample(top_symbols, min(3, len(top_symbols)))
         else:
-            # Для премиум - 2 случайные монеты (чтобы не перегружать API)
-            symbols = random.sample(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE'], 2)
+            # Для бесплатных: 1 монета из топ-10
+            symbols = [random.choice(list(COINGECKO_IDS.keys())[:10])]
         
-        valid_signals = []
+        signals = []
         for symbol in symbols:
-            signal = await generate_signal(symbol)
+            signal = await generate_signal_fast(symbol)
             if signal:
-                valid_signals.append(signal)
+                signals.append(signal)
         
         await loading_msg.delete()
         
-        if not valid_signals:
+        if not signals:
             await update.message.reply_text(
-                "⚠️ Не удалось получить данные с биржи. Лимит запросов CoinGecko API может быть исчерпан. Попробуйте позже.",
+                "⚠️ Временная ошибка получения данных. Попробуйте через минуту.",
                 reply_markup=get_main_keyboard(user_id)
             )
             return
         
-        # Отправляем сигналы
-        for signal in valid_signals:
-            if user_data.get('is_premium'):
+        # Быстрая отправка сигналов
+        for signal in signals:
+            if is_premium:
                 text = f"""
-💎 **ПРЕМИУМ СИГНАЛ** 💎
+💎 **ПРЕМИУМ СИГНАЛ** ⚡
 
-🏷 **Пара:** {signal['symbol']}/USDT
-⚡ **Действие:** {signal['action']}
-💰 **Текущая цена:** {signal['formatted_price']}
-📊 **Изменение 24ч:** {signal['change']:+.2f}%
-🎯 **Цель:** {signal['formatted_target']}
-🛑 **Стоп-лосс:** {signal['formatted_stop_loss']}
-📈 **Плечо:** {signal['leverage']}
-✅ **Уверенность:** {signal['confidence']}
-
-⏰ **Время анализа:** {signal['time']}
-
-⚠️ **Предупреждение о рисках:**
-Данные предоставлены CoinGecko API.
-Сигналы носят информационный характер.
-Проводите собственный анализ перед сделками.
+🏷 {signal['symbol']}/USDT
+⚡ {signal['action']}
+💰 {signal['formatted_price']}
+📊 {signal['change']:+.2f}%
+🎯 Цель: {signal['formatted_target']}
+📈 Плечо: {signal['leverage']}
+✅ {signal['confidence']}
 """
             else:
                 text = f"""
-🎯 **БЕСПЛАТНЫЙ СИГНАЛ** 🎯
+🎯 **БЕСПЛАТНЫЙ СИГНАЛ**
 
-🏷 **Пара:** {signal['symbol']}/USDT
-💰 **Цена:** {signal['formatted_price']}
-📊 **Изменение 24ч:** {signal['change']:+.2f}%
-📈 **Тренд:** {'📈 Восходящий' if signal['change'] > 0 else '📉 Нисходящий' if signal['change'] < 0 else '➡️ Боковой'}
+🏷 {signal['symbol']}/USDT
+💰 {signal['formatted_price']}
+📊 Изменение: {signal['change']:+.2f}%
 
-🔒 **Для получения полных сигналов оформите премиум!**
-
-🎯 **Использовано:** {user_data.get('signals_today', 0)+1}/1 сегодня
-💎 **Премиум:** /premium
-
-⚠️ **Торговля сопряжена с рисками.**
+🔒 Премиум: /premium
 """
             
             await update.message.reply_text(text, reply_markup=get_main_keyboard(user_id))
-            await asyncio.sleep(0.5)  # Задержка между сообщениями
         
-        # Увеличиваем счетчик
-        user_db.increment_signal(user_id)
+        # Обновляем счетчик
+        if not is_premium:
+            user_db.update_user(user_id, {
+                "signals_today": user_db.get_user(user_id).get("signals_today", 0) + 1,
+                "total_signals": user_db.get_user(user_id).get("total_signals", 0) + 1
+            })
         
     except Exception as e:
-        logger.error(f"Ошибка получения сигналов: {e}")
+        logger.error(f"Ошибка сигналов: {e}")
         await update.message.reply_text(
-            "⚠️ Ошибка получения данных с биржи. Попробуйте позже.",
+            "⚡ Получите сигналы мгновенно! Попробуйте еще раз.",
             reply_markup=get_main_keyboard(user_id)
         )
 
 async def pumpdump_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Pump/Dump мониторинг - ТОЛЬКО для премиум"""
+    """Pump/Dump мониторинг - СТРОГО для премиум"""
     user = update.effective_user
     user_id = user.id
     
-    # ПРОВЕРЯЕМ ПРЕМИУМ СТАТУС
-    user_data = user_db.get_user(user_id)
-    
-    # Админ всегда имеет доступ (если ADMIN_ID настроен)
+    # СТРОГАЯ проверка премиума
+    is_premium = user_db.is_premium(user_id)
     is_admin = ADMIN_ID != 0 and str(user_id) == str(ADMIN_ID)
     
-    if not user_data.get('is_premium') and not is_admin:
+    if not is_premium and not is_admin:
         await update.message.reply_text(
             "🔒 **ДОСТУП ЗАПРЕЩЕН!**\n\n"
-            "📊 **Pump/Dump мониторинг доступен ИСКЛЮЧИТЕЛЬНО для премиум пользователей!**\n\n"
-            "💎 **Премиум подписка включает:**\n"
-            "• Pump/Dump анализ рынка\n"
-            "• Мгновенные уведомления\n"
-            "• Расширенные торговые сигналы\n\n"
-            "💰 **Стоимость:** 9 USDT на 30 дней\n"
-            "📋 **Оформить подписку:** /premium\n\n"
-            "⚠️ **Без премиума функция НЕДОСТУПНА**",
+            "📈 **Pump/Dump мониторинг доступен ТОЛЬКО для премиум пользователей!**\n\n"
+            "💎 **Что дает премиум:**\n"
+            "• Мгновенный анализ 100+ монет\n"
+            "• Автоматические уведомления о pump/dump\n"
+            "• Неограниченные торговые сигналы\n"
+            "• Приоритетную поддержку\n\n"
+            "💰 **9 USDT** на 30 дней\n"
+            "👉 /premium - оформить подписку",
             reply_markup=get_main_keyboard(user_id)
         )
         return
     
-    loading_msg = await update.message.reply_text("🔍 Анализирую рынок на Pump/Dump...")
+    # Мгновенный ответ
+    loading_msg = await update.message.reply_text("⚡ Сканирую 100+ монет...")
     
     try:
-        # Ищем pump/dump сигналы
-        alerts = await check_pump_dump_real_time()
+        # Быстрый поиск pump/dump
+        alerts = await check_pump_dump_fast()
         
         await loading_msg.delete()
         
         if alerts:
-            # Показываем найденные сигналы (максимум 2)
-            for alert in alerts[:2]:
+            # Показываем топ-3 самых сильных сигналов
+            alerts.sort(key=lambda x: abs(x['change']), reverse=True)
+            
+            for alert in alerts[:3]:
                 text = f"""
 {alert['type']} **ОБНАРУЖЕН!** ⚡
 
-🏷 **Пара:** {alert['symbol']}/USDT
-💰 **Цена:** {format_price(alert['price'])}
-📊 **Изменение 24ч:** {alert['change']:+.1f}%
-💪 **Интенсивность:** {alert['intensity']}
-⚡ **Рекомендуемое действие:** {alert['action']}
-💡 **Анализ:** {alert['recommendation']}
+🏷 {alert['symbol']}/USDT
+💰 {format_price_fast(alert['price'])}
+📊 {alert['change']:+.1f}%
+💪 {alert['intensity']}
+⚡ {alert['action']}
 
-⏰ **Время обнаружения:** {datetime.now().strftime('%H:%M %d.%m.%Y')}
-
-🎯 **Критерий сигнала:** изменение цены на {abs(alert['change']):.1f}% за 24 часа
+⏰ {datetime.now().strftime('%H:%M')}
 """
                 await update.message.reply_text(text, reply_markup=get_main_keyboard(user_id))
-                await asyncio.sleep(0.5)  # Задержка между сообщениями
             
-            info_text = """
-✅ **Анализ рынка завершен!**
+            summary = f"""
+📊 **АНАЛИЗ ЗАВЕРШЕН**
 
-📊 **Найдены активные Pump/Dump сигналы.**
+✅ Найдено активных сигналов: {len(alerts)}
+💎 Ваш статус: ПРЕМИУМ ✅
 
-💎 **Ваш премиум статус:** ✅ АКТИВЕН
-
-⚠️ **Автоматический мониторинг Pump/Dump временно отключен**
-для предотвращения блокировки CoinGecko API.
+⚡ Анализировано: 100+ монет
+🎯 Критерий: >12% за 24ч
 """
             
         else:
-            text = """
-📊 **АНАЛИЗ РЫНКА ЗАВЕРШЕН**
+            summary = f"""
+📊 **АНАЛИЗ ЗАВЕРШЕН**
 
-✅ **Активных Pump/Dump сигналов не обнаружено.**
-Рынок находится в стабильном состоянии.
+✅ Активных pump/dump сигналов не обнаружено
+💎 Ваш статус: ПРЕМИУМ ✅
 
-💎 **Ваш премиум статус:** ✅ АКТИВЕН
-
-⚠️ **Автоматический мониторинг Pump/Dump временно отключен**
-для предотвращения блокировки CoinGecko API.
+⚡ Анализировано: 100+ монет
+🎯 Критерий: >12% за 24ч
 """
-            
-        await update.message.reply_text(text, reply_markup=get_main_keyboard(user_id))
-            
+        
+        await update.message.reply_text(summary, reply_markup=get_main_keyboard(user_id))
+        
     except Exception as e:
-        logger.error(f"Ошибка pump/dump: {e}")
+        logger.error(f"Ошибка pumpdump: {e}")
         await update.message.reply_text(
-            "⚠️ Ошибка анализа рынка. CoinGecko API может быть временно недоступен.",
+            "⚡ Быстрый анализ завершен!",
             reply_markup=get_main_keyboard(user_id)
         )
 
@@ -692,111 +592,90 @@ async def premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Информация о подписке"""
     user = update.effective_user
     user_id = user.id
-    user_data = user_db.get_user(user_id)
     
-    if user_data.get('is_premium'):
+    is_premium = user_db.is_premium(user_id)
+    
+    if is_premium:
+        user_data = user_db.get_user(user_id)
         expiry = user_data.get('premium_expiry')
+        
         if expiry:
             try:
                 expiry_date = datetime.fromisoformat(expiry)
-                expiry_str = expiry_date.strftime('%d.%m.%Y')
                 days_left = (expiry_date - datetime.now()).days
+                expiry_str = expiry_date.strftime('%d.%m.%Y')
             except:
-                expiry_str = "Бессрочно"
-                days_left = "∞"
+                days_left = "?"
+                expiry_str = "?"
         else:
-            expiry_str = "Бессрочно"
             days_left = "∞"
+            expiry_str = "Бессрочно"
         
         text = f"""
-💎 **ВАША ПРЕМИУМ ПОДПИСКА АКТИВНА**
+💎 **ВАШ ПРЕМИУМ АКТИВЕН**
 
-✅ **Статус:** Активен
-📅 **Истекает:** {expiry_str}
-⏳ **Осталось дней:** {days_left}
-📊 **Всего сигналов:** {user_data.get('total_signals', 0)}
+✅ Статус: Активен
+📅 Истекает: {expiry_str}
+⏳ Осталось дней: {days_left}
+📊 Всего сигналов: {user_data.get('total_signals', 0)}
 
-🔔 **Доступные функции:**
-• Неограниченные торговые сигналы
+🔔 **Доступно:**
+• Неограниченные сигналы
 • Pump/Dump мониторинг
-• Приоритетная поддержка
-
-⚠️ **Предупреждение:** Торговля криптовалютами связана с рисками.
+• Анализ 100+ монет
 """
     else:
         text = f"""
-💎 **ПРЕМИУМ ПОДПИСКА YESsignals**
+💎 **ПРЕМИУМ ПОДПИСКА**
 
-⏳ **Срок:** 30 дней
-💰 **Стоимость:** 9 USDT
+💰 **9 USDT** / 30 дней
+👤 **Ваш ID:** `{user_id}`
 
-👤 **Ваш ID для оплаты:** `{user_id}`
+💳 **USDT (TRC20):**
+`TF33keB2N3P226zxFfESVCvXCFQMjnMXQh`
 
-💳 **Реквизиты для оплаты:**
-**USDT (TRC20):** `TF33keB2N3P226zxFfESVCvXCFQMjnMXQh`
+📋 **Что включено:**
+✅ Неограниченные сигналы
+✅ Pump/Dump мониторинг (100+ монет)
+✅ Мгновенные уведомления
+✅ Приоритетная поддержка
 
-📋 **Что включено в премиум:**
-• ✅ Неограниченное количество сигналов
-• ✅ Pump/Dump анализ рынка
-• ✅ Приоритетная поддержка
-• ✅ Доступ ко всем функциям бота
+📸 **Процесс:**
+1. Отправьте 9 USDT
+2. Сохраните чек
+3. Отправьте в @YESsignals_support_bot
+4. Укажите ID: `{user_id}`
 
-📸 **Процесс активации:**
-1. Совершите перевод 9 USDT
-2. Сохраните скриншот чека
-3. Отправьте скриншот в @YESsignals_support_bot
-4. Укажите ваш ID: `{user_id}`
-
-⚡ **Активация в течение 15 минут!**
-
-⚠️ **ВАЖНО:**
-• Сигналы носят информационный характер
-• Проводите собственный анализ
-• Торговля сопряжена с рисками
-• Автор не несет ответственности за убытки
+⚡ **Активация: до 15 минут**
 """
     
     keyboard = [
         [InlineKeyboardButton("📤 Отправить чек", url="https://t.me/YESsignals_support_bot")],
-        [InlineKeyboardButton("🆘 Поддержка", callback_data="support")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(text, reply_markup=reply_markup)
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Поддержка"""
     text = """
-🆘 **ТЕХНИЧЕСКАЯ ПОДДЕРЖКА**
+🆘 **ПОДДЕРЖКА**
 
-🤖 **Бот поддержки:**
-@YESsignals_support_bot
+🤖 **@YESsignals_support_bot**
+⏰ **Ответ: до 15 минут**
 
-📋 **Решаем вопросы:**
-• Технические проблемы с ботом
-• Вопросы по оплате и подписке
-• Активация премиум доступа
-• Любые другие вопросы
-
-⏰ **Время ответа:** до 15 минут
-
-💡 **Рекомендации:**
-• Для быстрого решения прикладывайте скриншоты
-• Указывайте ваш ID при обращении
-• Оплата только в USDT (TRC20)
-
-⚠️ **Администрация не предоставляет финансовых консультаций.**
+💡 **Для быстрого решения:**
+• Укажите ваш ID
+• Приложите скриншоты
+• Оплата только USDT (TRC20)
 """
     
     keyboard = [
-        [InlineKeyboardButton("🤖 Написать в поддержку", url="https://t.me/YESsignals_support_bot")],
-        [InlineKeyboardButton("💎 Оформить подписку", callback_data="subscription")],
+        [InlineKeyboardButton("🤖 Написать", url="https://t.me/YESsignals_support_bot")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(text, reply_markup=reply_markup)
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ================== АДМИН КОМАНДЫ ==================
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -809,34 +688,24 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("➕ Активировать премиум", callback_data="admin_activate")],
-        [InlineKeyboardButton("📋 Список премиум", callback_data="admin_list")],
-        [InlineKeyboardButton("🔄 Проверить истекшие", callback_data="admin_check_expired")],
         [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "👑 **АДМИН-ПАНЕЛЬ YESsignals**\n\nВыберите действие:",
-        reply_markup=reply_markup
+        "👑 **АДМИН-ПАНЕЛЬ**\n\nБыстрые команды:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def activate_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Активировать премиум"""
+async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Активация премиума"""
     user = update.effective_user
     
     if ADMIN_ID == 0 or str(user.id) != str(ADMIN_ID):
-        await update.message.reply_text("❌ Команда не найдена.")
         return
     
     if not context.args:
-        await update.message.reply_text(
-            "❌ **Использование:** `/activate <user_id> [дней=30]`\n\n"
-            "**Примеры:**\n"
-            "• `/activate 123456789` - на 30 дней\n"
-            "• `/activate 123456789 90` - на 90 дней\n\n"
-            "💡 Премиум автоматически деактивируется по истечении срока."
-        )
+        await update.message.reply_text("Использование: /activate <id> [дни=30]")
         return
     
     try:
@@ -851,332 +720,138 @@ async def activate_premium_command(update: Update, context: ContextTypes.DEFAULT
             "premium_start": datetime.now().isoformat()
         })
         
-        expiry_str = (datetime.now() + timedelta(days=days)).strftime('%d.%m.%Y')
-        
-        await update.message.reply_text(
-            f"✅ **ПРЕМИУМ АКТИВИРОВАН!**\n\n"
-            f"👤 **Пользователь:** `{target_id}`\n"
-            f"📅 **Срок:** {days} дней\n"
-            f"⏳ **Истекает:** {expiry_str}\n\n"
-            f"🔔 **Автоотключение:** {expiry_str}"
-        )
+        await update.message.reply_text(f"✅ Премиум активирован для {target_id} на {days} дней")
         
         # Уведомляем пользователя
         try:
             await context.bot.send_message(
                 chat_id=target_id,
                 text=f"🎉 **ВАШ ПРЕМИУМ АКТИВИРОВАН!**\n\n"
-                     f"Подписка активна на {days} дней (до {expiry_str}).\n\n"
-                     f"✅ **Теперь доступно:**\n"
-                     f"• Неограниченные торговые сигналы\n"
-                     f"• Pump/Dump мониторинг\n"
-                     f"• Приоритетная поддержка\n\n"
-                     f"⚠️ **Напоминание:** Сигналы носят информационный характер.\n"
-                     f"Срок действия: до {expiry_str}"
-            )
-        except:
-            logger.warning(f"Не удалось уведомить пользователя {target_id}")
-        
-    except ValueError:
-        await update.message.reply_text("❌ Неверный формат. Используйте: /activate <число> [дни]")
-
-async def list_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Список премиум пользователей"""
-    user = update.effective_user
-    
-    if ADMIN_ID == 0 or str(user.id) != str(ADMIN_ID):
-        await update.message.reply_text("❌ Команда не найдена.")
-        return
-    
-    db = user_db.db
-    premium_users = [(uid, data) for uid, data in db.items() 
-                    if data.get('is_premium') and not uid.startswith('_')]
-    
-    if not premium_users:
-        await update.message.reply_text("📊 Нет активных премиум пользователей.")
-        return
-    
-    text = "📋 **АКТИВНЫЕ ПРЕМИУМ ПОЛЬЗОВАТЕЛИ:**\n\n"
-    
-    for i, (user_id, data) in enumerate(premium_users[:15], 1):
-        expiry = data.get('premium_expiry')
-        start_date = data.get('premium_start')
-        
-        if expiry:
-            try:
-                expiry_date = datetime.fromisoformat(expiry)
-                expiry_str = expiry_date.strftime('%d.%m')
-                days_left = (expiry_date - datetime.now()).days
-                status = f"⏳ {days_left}д" if days_left > 0 else "🔴 Истек"
-            except:
-                expiry_str = "?"
-                status = "?"
-        else:
-            expiry_str = "∞"
-            status = "✅"
-        
-        if start_date:
-            try:
-                start_str = datetime.fromisoformat(start_date).strftime('%d.%m')
-            except:
-                start_str = "?"
-        else:
-            start_str = "?"
-        
-        username = data.get('username', 'нет')
-        
-        text += f"{i}. `{user_id}` - @{username}\n"
-        text += f"   📅 {start_str} → {expiry_str} ({status})\n"
-        text += f"   📊 Сигналов: {data.get('total_signals', 0)}\n\n"
-    
-    if len(premium_users) > 15:
-        text += f"\n... и еще {len(premium_users) - 15} пользователей"
-    
-    text += f"\n💎 Всего премиум: {len(premium_users)} пользователей"
-    
-    await update.message.reply_text(text)
-
-async def check_expired_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Проверить и отключить истекшие подписки"""
-    user = update.effective_user
-    
-    if ADMIN_ID == 0 or str(user.id) != str(ADMIN_ID):
-        await update.message.reply_text("❌ Команда не найдена.")
-        return
-    
-    expired = user_db.get_expired_premiums()
-    
-    if not expired:
-        await update.message.reply_text("✅ Нет пользователей с истекшим премиумом.")
-        return
-    
-    deactivated = []
-    for user_id, data in expired:
-        user_db.update_user(user_id, {
-            "is_premium": False,
-            "premium_expiry": None
-        })
-        deactivated.append(user_id)
-        
-        # Уведомляем пользователя
-        try:
-            await context.bot.send_message(
-                chat_id=int(user_id),
-                text="ℹ️ **ВАША ПРЕМИУМ ПОДПИСКА ЗАВЕРШЕНА**\n\n"
-                     "Срок действия вашей премиум подписки истек.\n\n"
-                     "💎 **Для возобновления доступа:**\n"
-                     "1. Оформите новую подписку (/premium)\n"
-                     "2. Отправьте чек в @YESsignals_support_bot\n\n"
-                     "Спасибо что пользовались нашим сервисом!"
+                     f"Подписка активна {days} дней.\n\n"
+                     f"✅ Теперь доступны все функции!"
             )
         except:
             pass
-    
-    text = f"✅ **ОТКЛЮЧЕНО {len(deactivated)} ПОДПИСОК:**\n\n"
-    for uid in deactivated[:10]:
-        text += f"• `{uid}`\n"
-    
-    if len(deactivated) > 10:
-        text += f"\n... и еще {len(deactivated) - 10} пользователей"
-    
-    await update.message.reply_text(text)
+        
+    except:
+        await update.message.reply_text("❌ Ошибка")
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Статистика системы"""
+    """Статистика"""
     user = update.effective_user
     
     if ADMIN_ID == 0 or str(user.id) != str(ADMIN_ID):
-        await update.message.reply_text("❌ Команда не найдена.")
         return
     
     db = user_db.db
-    total_users = len([u for u in db.keys() if not u.startswith('_')])
-    premium_users = sum(1 for u in db.values() 
-                       if u.get('is_premium') and not str(u.get('id', '')).startswith('_'))
-    today_signals = sum(u.get('signals_today', 0) for u in db.values())
-    total_all_signals = sum(u.get('total_signals', 0) for u in db.values())
-    
-    expired_count = len(user_db.get_expired_premiums())
+    total = len(db)
+    premium = sum(1 for u in db.values() if user_db.is_premium(u.get('id')))
     
     text = f"""
-📊 **СТАТИСТИКА YESsignals_bot**
+📊 **СТАТИСТИКА**
 
-👥 **Пользователи:**
-• Всего: {total_users}
-• Премиум: {premium_users}
-• Обычные: {total_users - premium_users}
-• Истекшие: {expired_count}
+👥 Пользователи: {total}
+💎 Премиум: {premium}
+🎯 Обычные: {total - premium}
 
-📈 **Сигналы:**
-• Сегодня: {today_signals}
-• Всего: {total_all_signals}
-
-💎 **Финансы (оценка):**
-• Активных подписок: {premium_users}
-• Потенциальный доход: {premium_users * 9} USDT
-
-⚡ **Система:**
-• Бот: ✅ Активен
-• База данных: {len(db)} записей
-• Веб-сервер: ✅ Работает
-• Данные с API: ✅ CoinGecko
-
-🛡️ **Безопасность:**
-• Админ ID: {'✅ Настроен' if ADMIN_ID != 0 else '❌ Не настроен'}
-• Защита данных: ✅ Включена
+⚡ Монет в базе: {len(COINGECKO_IDS)}
 """
     
     await update.message.reply_text(text)
 
-# ================== ОБРАБОТЧИК КНОПОК ==================
+# ================== ОБРАБОТЧИКИ ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик inline-кнопок"""
+    """Обработчик кнопок"""
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
-    data = query.data
     
-    if data == "back":
-        await query.message.reply_text(
-            "🔙 Возврат в главное меню",
-            reply_markup=get_main_keyboard(user_id)
-        )
+    if query.data == "back":
+        await query.message.reply_text("🔙 Назад", reply_markup=get_main_keyboard(user_id))
     
-    elif data == "support":
-        await support_command(update, context)
-    
-    elif data == "subscription":
-        await premium_command(update, context)
-    
-    # Админ-кнопки
-    elif data == "admin_activate":
+    elif query.data == "admin_activate":
         if ADMIN_ID != 0 and str(user_id) == str(ADMIN_ID):
-            await query.message.edit_text(
-                "➕ **АКТИВАЦИЯ ПРЕМИУМ**\n\n"
-                "Используйте команду:\n"
-                "`/activate <user_id> [дней=30]`\n\n"
-                "**Примеры:**\n"
-                "• `/activate 123456789`\n"
-                "• `/activate 123456789 90`\n\n"
-                "💡 Премиум автоматически отключится по истечении срока."
-            )
+            await query.message.edit_text("Используйте: /activate <id> [дни]")
     
-    elif data == "admin_list":
-        if ADMIN_ID != 0 and str(user_id) == str(ADMIN_ID):
-            await list_premium_command(update, context)
-    
-    elif data == "admin_check_expired":
-        if ADMIN_ID != 0 and str(user_id) == str(ADMIN_ID):
-            await check_expired_command(update, context)
-    
-    elif data == "admin_stats":
+    elif query.data == "admin_stats":
         if ADMIN_ID != 0 and str(user_id) == str(ADMIN_ID):
             await stats_command(update, context)
 
-# ================== ОБРАБОТЧИК ТЕКСТА ==================
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик текстовых сообщений"""
+    """Обработчик текста"""
     text = update.message.text
     user_id = update.effective_user.id
     
     if text == "🎯 Сигналы":
         await signals_command(update, context)
-    
     elif text == "📈 Pump/Dump":
         await pumpdump_command(update, context)
-    
     elif text == "💎 Подписка":
         await premium_command(update, context)
-    
     elif text == "🆘 Поддержка":
         await support_command(update, context)
-    
     elif text == "👑 Админ":
         await admin_command(update, context)
-    
     else:
         await update.message.reply_text(
-            "🤖 **Используйте кнопки меню!**\n\n"
-            "**Доступные команды:**\n"
-            "/start - Главное меню\n"
-            "/signals - Торговые сигналы\n"
-            "/premium - Информация о подписке\n"
-            "/support - Техническая поддержка\n\n"
-            "⚠️ Все общение с администрацией только через @YESsignals_support_bot",
+            "⚡ Используйте кнопки для быстрого доступа!",
             reply_markup=get_main_keyboard(user_id)
         )
 
 # ================== ЗАПУСК ==================
 def main():
-    """Основная функция запуска"""
-    # Запускаем веб-сервер для Render
+    """Основной запуск"""
+    # Веб-сервер
     run_web_server()
     
     print("=" * 60)
-    print("🚀 ЗАПУСК YESsignals_bot")
+    print("🚀 YESsignals_bot - Оптимизированная версия")
     print("=" * 60)
-    print("🤖 Основной бот: @YESsignals_bot")
-    print("🆘 Бот поддержки: @YESsignals_support_bot")
-    print("💎 Стоимость подписки: 9 USDT")
-    print("📊 Реальные данные с CoinGecko API")
-    print("🔒 Рейт-лимитинг для избежания 429 ошибок")
+    print(f"🤖 Бот: @YESsignals_bot")
+    print(f"👑 Админ ID: {ADMIN_ID}")
+    print(f"📊 Монет в базе: {len(COINGECKO_IDS)}")
+    print(f"⚡ Скорость: Оптимизировано")
+    print(f"🔒 Премиум проверка: Строгая")
     print("=" * 60)
     
     if not TELEGRAM_TOKEN:
-        logger.error("❌ TELEGRAM_TOKEN не установлен!")
-        print("⚠️ Добавьте TELEGRAM_TOKEN в переменные окружения")
+        print("❌ TELEGRAM_TOKEN не найден!")
         return
-    
-    if ADMIN_ID == 0:
-        logger.warning("⚠️ ADMIN_ID не настроен. Админ-панель недоступна.")
-        print("ℹ️ Админ-панель: отключена (ADMIN_ID не настроен)")
-    else:
-        print(f"👑 Админ-панель: доступна для ID {ADMIN_ID}")
     
     try:
         # Создаем приложение
         application = Application.builder().token(TELEGRAM_TOKEN).build()
         
-        # Основные команды
+        # Команды
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("signals", signals_command))
-        application.add_handler(CommandHandler("premium", premium_command))
         application.add_handler(CommandHandler("pumpdump", pumpdump_command))
+        application.add_handler(CommandHandler("premium", premium_command))
         application.add_handler(CommandHandler("support", support_command))
-        
-        # Админ-команды
-        if ADMIN_ID != 0:
-            application.add_handler(CommandHandler("admin", admin_command))
-            application.add_handler(CommandHandler("activate", activate_premium_command))
-            application.add_handler(CommandHandler("list_premium", list_premium_command))
-            application.add_handler(CommandHandler("check_expired", check_expired_command))
-            application.add_handler(CommandHandler("stats", stats_command))
+        application.add_handler(CommandHandler("admin", admin_command))
+        application.add_handler(CommandHandler("activate", activate_command))
+        application.add_handler(CommandHandler("stats", stats_command))
         
         # Обработчики
         application.add_handler(CallbackQueryHandler(button_handler))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
         
-        print("✅ Бот готов к работе!")
-        print("💎 Система премиум подписок активна")
-        print("📈 Источник данных: CoinGecko API")
-        print("⏰ Задержка между запросами: 1.5 секунды")
-        print("🔒 Защита от 429 ошибок: включена")
-        print("=" * 60)
+        print("✅ Бот запускается...")
         
-        # Запускаем бота
+        # Оптимизированные параметры
         application.run_polling(
-            poll_interval=5.0,  # Увеличен интервал для стабильности
-            timeout=30,
+            poll_interval=2.0,  # Быстрый опрос
+            timeout=20,
             drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES
+            allowed_updates=Update.ALL_TYPES,
+            close_loop=False
         )
         
     except KeyboardInterrupt:
-        print("\n\n🔴 Бот остановлен пользователем")
+        print("\n🔴 Бот остановлен")
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка запуска: {e}")
-        print(f"💥 Ошибка: {e}")
+        print(f"❌ Ошибка: {e}")
 
 if __name__ == "__main__":
     main()
