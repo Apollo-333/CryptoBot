@@ -1194,10 +1194,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ Все общение с администрацией только через @YESsignals_support_bot",
             reply_markup=get_main_keyboard(user_id)
         )
-
+        
 # ================== ЗАПУСК ==================
-def main():
-    """Основная функция запуска"""
+async def main_async():
+    """Асинхронная функция запуска"""
     # Запускаем веб-сервер для Render
     run_web_server()
     
@@ -1223,6 +1223,7 @@ def main():
         print(f"👑 Админ-панель: доступна для ID {ADMIN_ID}")
     
     try:
+        # Создаем приложение
         application = Application.builder().token(TELEGRAM_TOKEN).build()
         
         # Основные команды
@@ -1251,10 +1252,11 @@ def main():
         print("⏰ Проверка: каждые 10 минут")
         print("=" * 60)
         
-        # Запускаем фоновую проверку мониторинга
+        # Запускаем фоновую задачу
         asyncio.create_task(background_monitoring_check())
         
-        application.run_polling(
+        # Запускаем бота
+        await application.run_polling(
             poll_interval=3.0,
             timeout=30,
             drop_pending_updates=True
@@ -1262,6 +1264,17 @@ def main():
         
     except Exception as e:
         logger.error(f"❌ Критическая ошибка запуска: {e}")
+        print(f"💥 Ошибка: {e}")
+
+def main():
+    """Основная функция запуска"""
+    try:
+        # Запускаем асинхронную функцию
+        asyncio.run(main_async())
+    except KeyboardInterrupt:
+        print("\n\n🔴 Бот остановлен пользователем")
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка: {e}")
         print(f"💥 Ошибка: {e}")
 
 if __name__ == "__main__":
