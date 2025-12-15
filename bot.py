@@ -1196,8 +1196,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
 # ================== ЗАПУСК ==================
-async def main_async():
-    """Асинхронная функция запуска"""
+def main():
+    """Основная функция запуска"""
     # Запускаем веб-сервер для Render
     run_web_server()
     
@@ -1223,6 +1223,10 @@ async def main_async():
         print(f"👑 Админ-панель: доступна для ID {ADMIN_ID}")
     
     try:
+        # Создаем event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
         # Создаем приложение
         application = Application.builder().token(TELEGRAM_TOKEN).build()
         
@@ -1252,30 +1256,23 @@ async def main_async():
         print("⏰ Проверка: каждые 10 минут")
         print("=" * 60)
         
-        # Запускаем фоновую задачу
-        asyncio.create_task(background_monitoring_check())
-        
         # Запускаем бота
-        await application.run_polling(
-            poll_interval=3.0,
-            timeout=30,
-            drop_pending_updates=True
+        loop.run_until_complete(
+            application.run_polling(
+                poll_interval=3.0,
+                timeout=30,
+                drop_pending_updates=True
+            )
         )
         
-    except Exception as e:
-        logger.error(f"❌ Критическая ошибка запуска: {e}")
-        print(f"💥 Ошибка: {e}")
-
-def main():
-    """Основная функция запуска"""
-    try:
-        # Запускаем асинхронную функцию
-        asyncio.run(main_async())
     except KeyboardInterrupt:
         print("\n\n🔴 Бот остановлен пользователем")
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {e}")
+        logger.error(f"❌ Критическая ошибка запуска: {e}")
         print(f"💥 Ошибка: {e}")
+    finally:
+        if 'loop' in locals() and not loop.is_closed():
+            loop.close()
 
 if __name__ == "__main__":
     main()
