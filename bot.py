@@ -41,7 +41,8 @@ COINGECKO_IDS = {
 
 # Глобальные переменные для pump/dump мониторинга
 pump_dump_alerts = []
-monitoring_active = False
+monitoring_tasks = {}  # Словарь для задач мониторинга по пользователям
+pump_dump_cache = {}   # Кэш последних проверок
 
 # ================== ВЕБ-СЕРВЕР ДЛЯ RENDER ==================
 def run_web_server():
@@ -286,13 +287,14 @@ async def generate_signal(symbol):
 
 # ================== PUMP/DUMP МОНИТОРИНГ ==================
 async def check_pump_dump_real_time():
-    """Проверка реальных pump/dump сигналов"""
-    global pump_dump_alerts
+    """Проверка pump/dump сигналов с ОСЛАБЛЕННЫМИ критериями"""
+    global pump_dump_alerts, pump_dump_cache
     
-    symbols = list(COINGECKO_IDS.keys())[:15]  # Проверяем 15 монет
+    symbols = list(COINGECKO_IDS.keys())[:20]  # Проверяем 20 монет
     prices_data = await get_multiple_prices(symbols)
     
     new_alerts = []
+    current_time = datetime.now()
     
     for symbol, data in prices_data.items():
         if not data or data['price'] == 0:
@@ -302,98 +304,217 @@ async def check_pump_dump_real_time():
         price = data['price']
         volume = data.get('volume', 0)
         
-        # REAL критерии для pump (более 12% за 24ч)
-        if change > 12:
-            alert_type = "🚀 PUMP"
-            intensity = "🔥 ВЫСОКАЯ" if change > 20 else "📈 СРЕДНЯЯ"
-            recommendation = "⚠️ Возможна коррекция" if change > 25 else "📊 Можно покупать с осторожностью"
-            
-            new_alerts.append({
-                'type': alert_type,
-                'symbol': symbol,
-                'change': change,
-                'price': price,
-                'intensity': intensity,
-                'recommendation': recommendation,
-                'volume': volume,
-                'timestamp': datetime.now().isoformat()
-            })
+        # ✅ ОСЛАБЛЕННЫЕ КРИТЕРИИ (было >12%, стало >8%):
         
-        # REAL критерии для dump (более 12% падения)
-        elif change < -12:
-            alert_type = "🔻 DUMP"
-            intensity = "💥 ВЫСОКАЯ" if change < -20 else "📉 СРЕДНЯЯ"
-            recommendation = "🔄 Возможен отскок" if change < -25 else "⏸️ Осторожно с покупками"
+        # Pump сигнал (рост более 8%)
+        if change > 8:
+            alert_type = "🚀 PUMP"
+            intensity = "🔥 СИЛЬНЫЙ" if change > 15 else "📈 УМЕРЕННЫЙ"
             
-            new_alerts.append({
-                'type': alert_type,
-                'symbol': symbol,
-                'change': change,
-                'price': price,
-                'intensity': intensity,
-                'recommendation': recommendation,
-                'volume': volume,
-                'timestamp': datetime.now().isoformat()
-            })
+            # Разные рекомендации в зависимости от силы
+            if change > 20:
+                recommendation = "⚠️ МОЩНЫЙ РОСТ - возможна коррекция"
+                action = "WAIT/SELL"
+            elif change > 12:
+                recommendation = "📈 СИЛЬНЫЙ РОСТ - можно покупать осторожно"
+                action = "CAUTIOUS BUY"
+            else:
+                recommendation = "↗️ РОСТ - рассматривайте покупку"
+                action = "BUY"
+            
+            # Проверяем кэш, чтобы не дублировать алерты
+            cache_key = f"{symbol}_pump_{int(change)}"
+            if cache_key not in pump_dump_cache or (current_time - pump_dump_cache[cache_key]).seconds > 3600:
+                pump_dump_cache[cache_key] = current_time
+                
+                new_alerts.append({
+                    'type': alert_type,
+                    'symbol': symbol,
+                    'change': change,
+                    'price': price,
+                    'intensity': intensity,
+                    'recommendation': recommendation,
+                    'action': action,
+                    'volume': volume,
+                    'timestamp': current_time.isoformat()
+                })
+        
+        # Dump сигнал (падение более 8%)
+        elif change < -8:
+            alert_type = "🔻 DUMP"
+            intensity = "💥 СИЛЬНЫЙ" if change < -15 else "📉 УМЕРЕННЫЙ"
+            
+            if change < -20:
+                recommendation = "💥 СИЛЬНОЕ ПАДЕНИЕ - возможен отскок"
+                action = "BUY/WAIT"
+            elif change < -12:
+                recommendation = "📉 СИЛЬНОЕ ПАДЕНИЕ - осторожно с покупками"
+                action = "WAIT"
+            else:
+                recommendation = "↘️ ПАДЕНИЕ - можно искать точку входа"
+                action = "CAUTIOUS BUY"
+            
+            cache_key = f"{symbol}_dump_{int(change)}"
+            if cache_key not in pump_dump_cache or (current_time - pump_dump_cache[cache_key]).seconds > 3600:
+                pump_dump_cache[cache_key] = current_time
+                
+                new_alerts.append({
+                    'type': alert_type,
+                    'symbol': symbol,
+                    'change': change,
+                    'price': price,
+                    'intensity': intensity,
+                    'recommendation': recommendation,
+                    'action': action,
+                    'volume': volume,
+                    'timestamp': current_time.isoformat()
+                })
     
     # Обновляем глобальные алерты
     pump_dump_alerts = new_alerts
+    
+    # Очищаем старые записи из кэша (старше 3 часов)
+    to_delete = []
+    for key, timestamp in pump_dump_cache.items():
+        if (current_time - timestamp).seconds > 10800:  # 3 часа
+            to_delete.append(key)
+    
+    for key in to_delete:
+        del pump_dump_cache[key]
+    
     return new_alerts
 
-async def start_pumpdump_monitoring(context):
-    """Запуск мониторинга pump/dump на 5 минут"""
-    global monitoring_active
-    
-    if monitoring_active:
-        return
-    
-    monitoring_active = True
-    logger.info("🔔 Запущен Pump/Dump мониторинг (5 минут)")
-    
-    # Первая проверка
-    alerts = await check_pump_dump_real_time()
-    
-    # Уведомляем премиум пользователей о новых сигналах
-    if alerts:
-        await notify_premium_users(context, alerts)
-    
-    # Останавливаем мониторинг через 5 минут
-    await asyncio.sleep(300)
-    monitoring_active = False
-    logger.info("🔕 Pump/Dump мониторинг остановлен")
-
-async def notify_premium_users(context, alerts):
-    """Уведомление премиум пользователей о pump/dump"""
+async def send_pumpdump_notification(user_id, context, alerts):
+    """Отправка pump/dump уведомлений пользователю"""
     try:
-        db = user_db.db
-        premium_users = [uid for uid, data in db.items() 
-                        if data.get("is_premium") and uid != str(ADMIN_ID)]
-        
-        for alert in alerts[:2]:  # Максимум 2 уведомления
+        for alert in alerts[:2]:  # Максимум 2 уведомления за раз
             message = f"""
-{alert['type']} СИГНАЛ! ⚡
+{alert['type']} **СИГНАЛ!** ⚡
 
-🏷 Пара: {alert['symbol']}/USDT
-💰 Цена: ${alert['price']:,.2f}
-📊 Изменение: {alert['change']:+.1f}%
-💪 {alert['intensity']}
-💡 {alert['recommendation']}
+🏷 **Пара:** {alert['symbol']}/USDT
+💰 **Цена:** ${alert['price']:,.2f}
+📊 **Изменение 24ч:** {alert['change']:+.1f}%
+💪 **Интенсивность:** {alert['intensity']}
+⚡ **Действие:** {alert['action']}
+💡 **Рекомендация:** {alert['recommendation']}
+💹 **Объем:** ${alert.get('volume', 0):,.0f}
 
-⏰ Обнаружено: {datetime.now().strftime('%H:%M')}
+⏰ **Обнаружено:** {datetime.now().strftime('%H:%M')}
+
+⚠️ **Автоматический мониторинг 24/7**
 """
             
-            for user_id in premium_users:
-                try:
-                    await context.bot.send_message(
-                        chat_id=int(user_id),
-                        text=message
-                    )
-                    await asyncio.sleep(0.1)  # Задержка между отправками
-                except:
-                    continue
-                    
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=message
+            )
+            await asyncio.sleep(1)  # Небольшая задержка между сообщениями
+            
     except Exception as e:
-        logger.error(f"Ошибка уведомления пользователей: {e}")
+        logger.error(f"Ошибка отправки уведомления {user_id}: {e}")
+
+async def start_continuous_monitoring(user_id, context):
+    """Запуск непрерывного мониторинга для конкретного пользователя"""
+    global monitoring_tasks
+    
+    # Проверяем премиум статус
+    user_data = user_db.get_user(user_id)
+    if not user_data.get('is_premium'):
+        logger.info(f"❌ Пользователь {user_id} не премиум - мониторинг остановлен")
+        return
+    
+    # Останавливаем предыдущую задачу если есть
+    if user_id in monitoring_tasks:
+        try:
+            monitoring_tasks[user_id].cancel()
+        except:
+            pass
+    
+    logger.info(f"🔔 Запущен 24/7 мониторинг для пользователя {user_id}")
+    
+    async def monitoring_loop():
+        """Цикл мониторинга 24/7"""
+        try:
+            while True:
+                # Проверяем премиум статус каждую итерацию
+                current_user_data = user_db.get_user(user_id)
+                if not current_user_data.get('is_premium'):
+                    logger.info(f"🔕 Премиум закончился у {user_id} - остановка мониторинга")
+                    if user_id in monitoring_tasks:
+                        del monitoring_tasks[user_id]
+                    break
+                
+                # Ищем pump/dump сигналы
+                alerts = await check_pump_dump_real_time()
+                
+                # Отправляем уведомления если есть новые сигналы
+                if alerts:
+                    await send_pumpdump_notification(user_id, context, alerts)
+                
+                # Ждем 10 минут до следующей проверки
+                await asyncio.sleep(600)  # 10 минут
+                
+        except asyncio.CancelledError:
+            logger.info(f"⏹️ Мониторинг остановлен для {user_id}")
+        except Exception as e:
+            logger.error(f"Ошибка в мониторинге для {user_id}: {e}")
+            if user_id in monitoring_tasks:
+                del monitoring_tasks[user_id]
+    
+    # Запускаем новую задачу
+    task = asyncio.create_task(monitoring_loop())
+    monitoring_tasks[user_id] = task
+    
+    return task
+
+async def check_and_stop_expired_monitoring():
+    """Проверка и остановка мониторинга у пользователей с истекшим премиумом"""
+    global monitoring_tasks
+    
+    users_to_stop = []
+    
+    for user_id_str, task in list(monitoring_tasks.items()):
+        try:
+            user_id = int(user_id_str)
+            user_data = user_db.get_user(user_id)
+            
+            # Проверяем премиум статус
+            if not user_data.get('is_premium'):
+                users_to_stop.append(user_id_str)
+                
+                # Останавливаем задачу
+                try:
+                    task.cancel()
+                except:
+                    pass
+                
+                logger.info(f"⏹️ Остановлен мониторинг для {user_id} (премиум истек)")
+                
+        except (ValueError, KeyError) as e:
+            users_to_stop.append(user_id_str)
+            logger.error(f"Ошибка проверки пользователя {user_id_str}: {e}")
+    
+    # Удаляем остановленные задачи
+    for user_id in users_to_stop:
+        if user_id in monitoring_tasks:
+            del monitoring_tasks[user_id]
+    
+    return len(users_to_stop)
+
+async def background_monitoring_check():
+    """Фоновая проверка мониторинга каждые 5 минут"""
+    while True:
+        try:
+            stopped = await check_and_stop_expired_monitoring()
+            if stopped > 0:
+                logger.info(f"🔍 Проверка мониторинга: остановлено {stopped} задач")
+            
+            # Проверяем каждые 5 минут
+            await asyncio.sleep(300)
+            
+        except Exception as e:
+            logger.error(f"Ошибка фоновой проверки: {e}")
+            await asyncio.sleep(60)  # Ждем минуту при ошибке
 
 # ================== КЛАВИАТУРЫ ==================
 def get_main_keyboard(user_id):
@@ -539,35 +660,46 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def pumpdump_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Pump/Dump мониторинг"""
+    """Pump/Dump мониторинг - ТОЛЬКО для премиум"""
     user = update.effective_user
     user_id = user.id
     
-    # Проверка премиума
+    # ПРОВЕРЯЕМ ПРЕМИУМ СТАТУС
     user_data = user_db.get_user(user_id)
-    if not user_data.get('is_premium') and str(user_id) != str(ADMIN_ID):
+    
+    # ДИАГНОСТИКА - выводим в лог что проверяем
+    logger.info(f"🔍 Проверяем премиум для {user_id}: is_premium={user_data.get('is_premium')}")
+    
+    # Админ всегда имеет доступ (если ADMIN_ID настроен)
+    is_admin = ADMIN_ID != 0 and str(user_id) == str(ADMIN_ID)
+    
+    if not user_data.get('is_premium') and not is_admin:
         await update.message.reply_text(
-            "🔒 **Pump/Dump мониторинг доступен только для премиум пользователей!**\n\n"
-            "💎 **Премиум включает:**\n"
-            "• Мгновенные уведомления о pump/dump\n"
+            "🔒 **ДОСТУП ЗАПРЕЩЕН!**\n\n"
+            "📊 **Pump/Dump мониторинг доступен ИСКЛЮЧИТЕЛЬНО для премиум пользователей!**\n\n"
+            "💎 **Премиум подписка включает:**\n"
             "• 24/7 мониторинг рынка\n"
-            "• Расширенный анализ\n\n"
-            "Оформите подписку: /premium",
+            "• Мгновенные уведомления о pump/dump\n"
+            "• Автоматический анализ волатильности\n"
+            "• Расширенные торговые сигналы\n\n"
+            "💰 **Стоимость:** 9 USDT на 30 дней\n"
+            "📋 **Оформить подписку:** /premium\n\n"
+            "⚠️ **Без премиума функция НЕДОСТУПНА**",
             reply_markup=get_main_keyboard(user_id)
         )
         return
     
-    loading_msg = await update.message.reply_text("🔍 Ищу активные Pump/Dump сигналы...")
+    loading_msg = await update.message.reply_text("🔍 Сканирую рынок на Pump/Dump...")
     
     try:
-        # Ищем реальные pump/dump
+        # 1. Сначала ищем реальные pump/dump сигналы СРАЗУ
         alerts = await check_pump_dump_real_time()
         
         await loading_msg.delete()
         
         if alerts:
-            # Показываем найденные сигналы
-            for alert in alerts[:2]:  # Максимум 2 сигнала
+            # 2. Показываем найденные сигналы (максимум 3)
+            for alert in alerts[:3]:
                 text = f"""
 {alert['type']} **ОБНАРУЖЕН!** ⚡
 
@@ -575,46 +707,64 @@ async def pumpdump_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 💰 **Цена:** ${alert['price']:,.2f}
 📊 **Изменение 24ч:** {alert['change']:+.1f}%
 💪 **Интенсивность:** {alert['intensity']}
-💡 **Рекомендация:** {alert['recommendation']}
-💹 **Объем:** ${alert.get('volume', 0):,.0f}
+⚡ **Рекомендуемое действие:** {alert['action']}
+💡 **Анализ:** {alert['recommendation']}
+💹 **Объем 24ч:** ${alert.get('volume', 0):,.0f}
 
 ⏰ **Время обнаружения:** {datetime.now().strftime('%H:%M %d.%m.%Y')}
 
-⚠️ **Будьте осторожны:** Высокая волатильность.
+🎯 **Критерий сигнала:** изменение цены на {abs(alert['change']):.1f}% за 24 часа
 """
                 await update.message.reply_text(text, reply_markup=get_main_keyboard(user_id))
+                await asyncio.sleep(0.5)  # Небольшая задержка между сообщениями
             
-            # Запускаем мониторинг на 5 минут
-            asyncio.create_task(start_pumpdump_monitoring(context.bot))
-            
-            info_text = """
-🔔 **Pump/Dump мониторинг АКТИВИРОВАН!**
+            # 3. Информация о мониторинге
+            info_text = f"""
+✅ **Pump/Dump мониторинг АКТИВИРОВАН!**
 
-В течение **5 минут** вы будете получать уведомления
-о новых pump/dump сигналах на рынке.
+🔔 **Вы будете получать уведомления:**
+• При обнаружении новых pump/dump (>8% за 24ч)
+• Автоматически 24/7
+• Даже когда бот не активен
 
-💎 **Премиум функция активна!**
+📊 **Параметры мониторинга:**
+• Проверка: каждые 10 минут
+• Монет в анализе: 20
+• Критерий pump: рост >8% за 24ч
+• Критерий dump: падение >8% за 24ч
+
+⏰ **Мониторинг активен до:** { (datetime.now() + timedelta(days=30)).strftime('%d.%m.%Y') if user_data.get('premium_expiry') else 'окончания премиума' }
+
+💎 **Статус:** ✅ АКТИВЕН (премиум)
 """
-            await update.message.reply_text(info_text, reply_markup=get_main_keyboard(user_id))
             
         else:
+            # Если нет активных сигналов
             text = """
-📊 **РЫНОК СТАБИЛЕН**
+📊 **АНАЛИЗ РЫНКА ЗАВЕРШЕН**
 
-На данный момент нет активных pump/dump сигналов.
-Волатильность в пределах нормы.
+✅ **Активных Pump/Dump сигналов не обнаружено.**
+Рынок находится в стабильном состоянии.
 
 🔔 **Pump/Dump мониторинг АКТИВИРОВАН!**
 
-В течение **5 минут** вы будете получать уведомления
-о новых pump/dump сигналах на рынке.
+📈 **Параметры мониторинга 24/7:**
+• Проверка каждые 10 минут
+• Анализ 20+ криптовалют
+• Уведомления при изменении >8% за 24ч
+• Автоматическая работа
 
-⏰ **Следующая проверка:** автоматически
+💎 **Ваш премиум статус:** ✅ АКТИВЕН
+
+⏰ **Следующая автоматическая проверка:** через 10 минут
 """
-            await update.message.reply_text(text, reply_markup=get_main_keyboard(user_id))
             
-            # Все равно запускаем мониторинг
-            asyncio.create_task(start_pumpdump_monitoring(context.bot))
+        await update.message.reply_text(text, reply_markup=get_main_keyboard(user_id))
+        
+        # 4. Запускаем НЕПРЕРЫВНЫЙ мониторинг 24/7
+        if user_data.get('is_premium'):
+            await start_continuous_monitoring(user_id, context.bot)
+            logger.info(f"🚀 Запущен 24/7 мониторинг для премиум пользователя {user_id}")
             
     except Exception as e:
         logger.error(f"Ошибка pump/dump: {e}")
@@ -956,7 +1106,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚡ **Система:**
 • Бот: ✅ Активен
 • База данных: {len(db)} записей
-• Pump/Dump мониторинг: {'✅' if monitoring_active else '❌'}
+• Pump/Dump мониторинг 24/7: {len(monitoring_tasks)} активных
 • Веб-сервер: ✅ Работает
 
 🛡️ **Безопасность:**
@@ -1057,8 +1207,8 @@ def main():
     print("🤖 Основной бот: @YESsignals_bot")
     print("🆘 Бот поддержки: @YESsignals_support_bot")
     print("💎 Стоимость подписки: 9 USDT")
-    print("📊 Анализ крипторынка 24/7")
-    print("🛡️ Автоматическое отключение премиума")
+    print("📊 Pump/Dump мониторинг: 24/7")
+    print("🎯 Критерий сигналов: >8% за 24 часа")
     print("=" * 60)
     
     if not TELEGRAM_TOKEN:
@@ -1082,7 +1232,7 @@ def main():
         application.add_handler(CommandHandler("pumpdump", pumpdump_command))
         application.add_handler(CommandHandler("support", support_command))
         
-        # Админ-команды (только если ADMIN_ID настроен)
+        # Админ-команды
         if ADMIN_ID != 0:
             application.add_handler(CommandHandler("admin", admin_command))
             application.add_handler(CommandHandler("activate", activate_premium_command))
@@ -1096,9 +1246,13 @@ def main():
         
         print("✅ Бот готов к работе!")
         print("💎 Система премиум подписок активна")
-        print("📊 Pump/Dump мониторинг настроен")
-        print("🛡️ Автоотключение премиума включено")
+        print("📊 Pump/Dump мониторинг: 24/7")
+        print("🎯 Критерии: Pump >8%, Dump < -8%")
+        print("⏰ Проверка: каждые 10 минут")
         print("=" * 60)
+        
+        # Запускаем фоновую проверку мониторинга
+        asyncio.create_task(background_monitoring_check())
         
         application.run_polling(
             poll_interval=3.0,
