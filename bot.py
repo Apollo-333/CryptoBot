@@ -1296,8 +1296,8 @@ async def background_monitoring_check():
             logger.error(f"Ошибка фоновой проверки: {e}")
             await asyncio.sleep(60)  # Ждем минуту при ошибке
 
-async def main_async():
-    """Асинхронная функция запуска"""
+def main():
+    """Основная функция запуска"""
     # Запускаем веб-сервер для Render
     run_web_server()
     
@@ -1352,11 +1352,8 @@ async def main_async():
         print("🔒 Валидация данных: включена")
         print("=" * 60)
         
-        # Запускаем фоновую задачу
-        asyncio.create_task(background_monitoring_check())
-        
-        # Запускаем бота
-        await application.run_polling(
+        # Запускаем бота СИНХРОННО (без асинхронных задач)
+        application.run_polling(
             poll_interval=3.0,
             timeout=30,
             drop_pending_updates=True
@@ -1364,17 +1361,6 @@ async def main_async():
         
     except Exception as e:
         logger.error(f"❌ Критическая ошибка запуска: {e}")
-        print(f"💥 Ошибка: {e}")
-
-def main():
-    """Основная функция запуска"""
-    try:
-        # Запускаем асинхронную функцию
-        asyncio.run(main_async())
-    except KeyboardInterrupt:
-        print("\n\n🔴 Бот остановлен пользователем")
-    except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {e}")
         print(f"💥 Ошибка: {e}")
 
 if __name__ == "__main__":
